@@ -22,7 +22,6 @@ import (
 	"github.com/open-telemetry/opentelemetry-collector/component"
 	"github.com/open-telemetry/opentelemetry-collector/consumer/pdata"
 	"github.com/open-telemetry/opentelemetry-collector/exporter/exporterhelper"
-	"github.com/open-telemetry/opentelemetry-collector/internal"
 	"github.com/open-telemetry/opentelemetry-collector/translator/conventions"
 )
 
@@ -92,8 +91,8 @@ func spanToSentrySpan(span pdata.Span) (*SentrySpan, bool) {
 	op, description := generateSpanDescriptors(name, attributes, spanKind)
 	tags := generateTagsFromAttributes(attributes)
 
-	endTimestamp := internal.UnixNanoToTime(span.EndTime())
-	timestamp := internal.UnixNanoToTime(span.StartTime())
+	endTimestamp := UnixNanoToTime(span.EndTime())
+	timestamp := UnixNanoToTime(span.StartTime())
 
 	status, message := generateStatusFromSpanStatus(span.Status())
 	if message != "" {
@@ -119,8 +118,8 @@ func spanToSentrySpan(span pdata.Span) (*SentrySpan, bool) {
 	return sentrySpan, isRootSpan
 }
 
-// We use Semantic Conventions described by the open telemetry specification to
-// decide what op and description to apply to the span
+// To generate span descriptors (op and description) for a particular span we use
+// Semantic Conventions described by the open telemetry specification.
 // https://github.com/open-telemetry/opentelemetry-specification/tree/master/specification/trace/semantic_conventions
 func generateSpanDescriptors(name string, attrs pdata.AttributeMap, spanKind pdata.SpanKind) (op string, description string) {
 	var opString strings.Builder
