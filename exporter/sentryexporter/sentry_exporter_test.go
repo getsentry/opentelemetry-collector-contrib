@@ -68,6 +68,20 @@ func TestGenerateStatusFromSpanStatus(t *testing.T) {
 	assert.Equal(t, "message", message2)
 }
 
+/*
+
+&sentryexporter.SentrySpan{
+	TraceID:"01020304050607080807060504030201",
+	SpanID:"0102030405060708",
+	ParentSpanID:"0807060504030201",
+	Description:"test-name",
+	Op:"",
+	Tags:sentryexporter.Tags{"span_kind":"SPAN_KIND_UNSPECIFIED"},
+	EndTimestamp:"1969-12-31 19:00:01.23456789 -0500 EST",
+	Timestamp:"1969-12-31 19:00:00.000000123 -0500 EST",
+	Status:"unknown"
+}
+*/
 // TODO: Finish this test plz
 func TestSpanToSentrySpan(t *testing.T) {
 	t.Skip("Finish this test")
@@ -199,18 +213,3 @@ func TestGenerateSpanDescriptors(t *testing.T) {
 		})
 	}
 }
-
-/*
-
-&sentryexporter.SentrySpan{
-	TraceID:"01020304050607080807060504030201",
-	SpanID:"0102030405060708",
-	ParentSpanID:"0807060504030201",
-	Description:"test-name",
-	Op:"",
-	Tags:sentryexporter.Tags{"span_kind":"SPAN_KIND_UNSPECIFIED"},
-	EndTimestamp:"1969-12-31 19:00:01.23456789 -0500 EST",
-	Timestamp:"1969-12-31 19:00:00.000000123 -0500 EST",
-	Status:"unknown"
-}
-*/

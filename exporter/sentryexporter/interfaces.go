@@ -25,22 +25,23 @@ type Tags map[string]string
 
 // SentrySpan describes a Span following the Sentry format
 type SentrySpan struct {
-	TraceID      string    `json:"trace_id"`
-	SpanID       string    `json:"span_id"`
-	ParentSpanID string    `json:"parent_span_id,omitempty"`
-	Description  string    `json:"description,omitempty"`
-	Op           string    `json:"op,omitempty"`
-	Tags         Tags      `json:"tags,omitempty"`
-	EndTimestamp time.Time `json:"end_timestamp"`
-	Timestamp    time.Time `json:"timestamp"`
-	Status       string    `json:"status"`
+	TraceID        string    `json:"trace_id"`
+	SpanID         string    `json:"span_id"`
+	ParentSpanID   string    `json:"parent_span_id,omitempty"`
+	Description    string    `json:"description,omitempty"`
+	Op             string    `json:"op,omitempty"`
+	Tags           Tags      `json:"tags,omitempty"`
+	StartTimestamp time.Time `json:"start_timestamp,omitempty"`
+	Timestamp      time.Time `json:"timestamp"`
+	Status         string    `json:"status"`
 }
 
 // TraceContext describes the context of the trace
 type TraceContext struct {
-	TraceID      string `json:"trace_id"`
-	SpanID       string `json:"span_id"`
-	ParentSpanID string `json:"parent_span_id,omitempty"`
+	TraceID     string `json:"trace_id"`
+	SpanID      string `json:"span_id"`
+	Op          string `json:"op,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
 // SentryTransaction describes a Sentry Transaction

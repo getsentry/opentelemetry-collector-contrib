@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/open-telemetry/opentelemetry-collector/component"
 	"github.com/open-telemetry/opentelemetry-collector/consumer/pdata"
 	"github.com/open-telemetry/opentelemetry-collector/exporter/exporterhelper"
@@ -30,6 +31,41 @@ type SentryExporter struct {
 	Dsn string
 }
 
+// SpanStore stores a list of spans
+type SpanStore struct {
+	spans        []*SentrySpan
+	earliestSpan *SentrySpan
+	latestSpan   *SentrySpan
+}
+
+func (s *SpanStore) init(cap int) {
+	s.spans = make([]*SentrySpan, 0, cap)
+}
+
+func (s *SpanStore) updateEarliest(span *SentrySpan) {
+	if span.StartTimestamp.Before(s.earliestSpan.StartTimestamp) {
+		s.earliestSpan = span
+	}
+}
+
+func (s *SpanStore) updateLatest(span *SentrySpan) {
+	if span.Timestamp.After(s.latestSpan.Timestamp) {
+		s.latestSpan = span
+	}
+}
+
+func (s *SpanStore) updateStore(span *SentrySpan) {
+	if len(s.spans) == 0 {
+		s.earliestSpan = span
+		s.latestSpan = span
+	} else {
+		s.updateEarliest(span)
+		s.updateLatest(span)
+	}
+
+	s.spans = append(s.spans, span)
+}
+
 func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (droppedSpans int, err error) {
 	resourceSpans := td.ResourceSpans()
 
@@ -37,9 +73,9 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 		return 0, nil
 	}
 
-	// Create a transaction for each resource
-	// TODO: Create batches? Idk
-	// transactions := make([]*SentryTransaction, 0, resourceSpans.Len())
+	// Approximate number of transactions based on first Instrumentation Library
+	numTrans := resourceSpans.At(0).InstrumentationLibrarySpans().Len()
+	transactions := make([]*SentryTransaction, 0, numTrans)
 
 	for i := 0; i < resourceSpans.Len(); i++ {
 		rs := resourceSpans.At(i)
@@ -47,31 +83,79 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 			continue
 		}
 
-		// tags := generateTagsFromAttributes(rs.Resource().Attributes())
-
-		// TODO: Grab resource attributes to add to transaction
-		// resource := rs.Resource() && check attr := resource.Attributes()
+		tags := generateTagsFromAttributes(rs.Resource().Attributes())
 
 		instLibSpans := rs.InstrumentationLibrarySpans()
 
 		for j := 0; j < instLibSpans.Len(); j++ {
+			// TODO: Add ils.InstrumentationLibrary().Name() and ils.InstrumentationLibrary().Version()
 			// Each ils represents a transaction
 			ils := instLibSpans.At(j)
-
-			// TODO: Add ils.InstrumentationLibrary().Name() and ils.InstrumentationLibrary().Version()
 			if ils.IsNil() {
 				continue
 			}
+
+			spans := ils.Spans()
+
+			sentrySpanStore := &SpanStore{}
+			sentrySpanStore.init(spans.Len())
+
+			rootSpanStore := &SpanStore{}
+			// Assume there will be maximum half as many root spans as total spans
+			rootSpanStore.init(spans.Len() / 2)
+
+			for k := 0; k < spans.Len(); k++ {
+				sentrySpan, isRootSpan := spanToSentrySpan(spans.At(k))
+
+				if isRootSpan {
+					rootSpanStore.updateStore(sentrySpan)
+				} else {
+					sentrySpanStore.updateStore(sentrySpan)
+				}
+			}
+
+			context := TraceContext{
+				TraceID: rootSpanStore.earliestSpan.TraceID,
+			}
+
+			transactionID, err := uuid.NewRandom()
+			if err != nil {
+				return 0, err
+			}
+
+			context = TraceContext{
+				TraceID:     rootSpanStore.earliestSpan.TraceID,
+				SpanID:      strings.Replace(transactionID.String(), "-", "", -1)[:16],
+				Op:          rootSpanStore.earliestSpan.Op,
+				Description: rootSpanStore.earliestSpan.Description,
+			}
+
+			sentryTransaction := &SentryTransaction{
+				StartTimestamp: rootSpanStore.earliestSpan.StartTimestamp,
+				Timestamp:      rootSpanStore.latestSpan.Timestamp,
+				Contexts:       context,
+				Tags:           tags,
+			}
+
+			// if len(rootSpanStore.rootSpans) == 1 {
+			// 	sentryTransaction.Spans = sentrySpans
+			// } else {
+			// 	sentryTransaction
+			// }
+
+			transactions = append(transactions, sentryTransaction)
 		}
 	}
 
+	// TODO: Send transaction to sentry
+
 	// TODO: figure out how to send dropped spans
-	return 0, nil
+	return len(transactions), nil
 }
 
 // TODO: Span.Link
 // TODO; Span.Event -> create breadcrumbs
-func spanToSentrySpan(span pdata.Span) (*SentrySpan, bool) {
+func spanToSentrySpan(span pdata.Span) (ss *SentrySpan, isRs bool) {
 	if span.IsNil() {
 		return nil, false
 	}
@@ -91,8 +175,8 @@ func spanToSentrySpan(span pdata.Span) (*SentrySpan, bool) {
 	op, description := generateSpanDescriptors(name, attributes, spanKind)
 	tags := generateTagsFromAttributes(attributes)
 
+	startTimestamp := UnixNanoToTime(span.StartTime())
 	endTimestamp := UnixNanoToTime(span.EndTime())
-	timestamp := UnixNanoToTime(span.StartTime())
 
 	status, message := generateStatusFromSpanStatus(span.Status())
 	if message != "" {
@@ -104,15 +188,15 @@ func spanToSentrySpan(span pdata.Span) (*SentrySpan, bool) {
 	}
 
 	sentrySpan := &SentrySpan{
-		TraceID:      traceID,
-		SpanID:       spanID,
-		ParentSpanID: parentSpanID,
-		Description:  description,
-		Op:           op,
-		Tags:         tags,
-		EndTimestamp: endTimestamp,
-		Timestamp:    timestamp,
-		Status:       status,
+		TraceID:        traceID,
+		SpanID:         spanID,
+		ParentSpanID:   parentSpanID,
+		Description:    description,
+		Op:             op,
+		Tags:           tags,
+		StartTimestamp: startTimestamp,
+		Timestamp:      endTimestamp,
+		Status:         status,
 	}
 
 	return sentrySpan, isRootSpan
@@ -146,6 +230,7 @@ func generateSpanDescriptors(name string, attrs pdata.AttributeMap, spanKind pda
 
 	// if db.type exists then this is a database call span
 	if _, ok := attrs.Get(conventions.AttributeDBType); ok {
+		// TODO: Use more detailed op code?
 		opString.WriteString("db")
 
 		// Use DB statement (Ex "SELECT * FROM table") if possible as description
