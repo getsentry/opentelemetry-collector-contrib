@@ -17,6 +17,7 @@ package sentryexporter
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/open-telemetry/opentelemetry-collector/consumer/pdata"
 	"github.com/open-telemetry/opentelemetry-collector/translator/conventions"
@@ -212,4 +213,38 @@ func TestGenerateSpanDescriptors(t *testing.T) {
 			assert.Equal(t, test.description, description)
 		})
 	}
+}
+
+func TestSpanStore(t *testing.T) {
+	StartSpan := &SentrySpan{
+		StartTimestamp: time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
+		Timestamp:      time.Date(2020, 1, 2, 0, 0, 0, 0, time.UTC),
+	}
+
+	EndSpan := &SentrySpan{
+		StartTimestamp: time.Date(2020, 1, 3, 0, 0, 0, 0, time.UTC),
+		Timestamp:      time.Date(2020, 1, 4, 0, 0, 0, 0, time.UTC),
+	}
+
+	BigSpan := &SentrySpan{
+		StartTimestamp: time.Date(2019, 12, 20, 0, 0, 0, 0, time.UTC),
+		Timestamp:      time.Date(2020, 1, 6, 0, 0, 0, 0, time.UTC),
+	}
+
+	store := &SpanStore{}
+	store.init(5)
+
+	assert.Equal(t, cap(store.spans), 5)
+
+	store.updateStore(StartSpan)
+	assert.Equal(t, store.earliestSpan, StartSpan)
+	assert.Equal(t, store.latestSpan, StartSpan)
+
+	store.updateStore(EndSpan)
+	assert.Equal(t, store.earliestSpan, StartSpan)
+	assert.Equal(t, store.latestSpan, EndSpan)
+
+	store.updateStore(BigSpan)
+	assert.Equal(t, store.earliestSpan, BigSpan)
+	assert.Equal(t, store.latestSpan, BigSpan)
 }

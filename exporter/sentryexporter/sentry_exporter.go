@@ -43,25 +43,24 @@ func (s *SpanStore) init(cap int) {
 }
 
 func (s *SpanStore) updateEarliest(span *SentrySpan) {
-	if span.StartTimestamp.Before(s.earliestSpan.StartTimestamp) {
+	if len(s.spans) == 0 {
+		s.earliestSpan = span
+	} else if span.StartTimestamp.Before(s.earliestSpan.StartTimestamp) {
 		s.earliestSpan = span
 	}
 }
 
 func (s *SpanStore) updateLatest(span *SentrySpan) {
-	if span.Timestamp.After(s.latestSpan.Timestamp) {
+	if len(s.spans) == 0 {
+		s.latestSpan = span
+	} else if span.Timestamp.After(s.latestSpan.Timestamp) {
 		s.latestSpan = span
 	}
 }
 
 func (s *SpanStore) updateStore(span *SentrySpan) {
-	if len(s.spans) == 0 {
-		s.earliestSpan = span
-		s.latestSpan = span
-	} else {
-		s.updateEarliest(span)
-		s.updateLatest(span)
-	}
+	s.updateEarliest(span)
+	s.updateLatest(span)
 
 	s.spans = append(s.spans, span)
 }
