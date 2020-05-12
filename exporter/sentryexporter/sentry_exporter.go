@@ -42,7 +42,7 @@ func (s *SpanStore) init(cap int) {
 	s.spans = make([]*SentrySpan, 0, cap)
 }
 
-func (s *SpanStore) updateEarliest(span *SentrySpan) {
+func (s *SpanStore) _updateEarliest(span *SentrySpan) {
 	if len(s.spans) == 0 {
 		s.earliestSpan = span
 	} else if span.StartTimestamp.Before(s.earliestSpan.StartTimestamp) {
@@ -50,7 +50,7 @@ func (s *SpanStore) updateEarliest(span *SentrySpan) {
 	}
 }
 
-func (s *SpanStore) updateLatest(span *SentrySpan) {
+func (s *SpanStore) _updateLatest(span *SentrySpan) {
 	if len(s.spans) == 0 {
 		s.latestSpan = span
 	} else if span.Timestamp.After(s.latestSpan.Timestamp) {
@@ -59,8 +59,8 @@ func (s *SpanStore) updateLatest(span *SentrySpan) {
 }
 
 func (s *SpanStore) updateStore(span *SentrySpan) {
-	s.updateEarliest(span)
-	s.updateLatest(span)
+	s._updateEarliest(span)
+	s._updateLatest(span)
 
 	s.spans = append(s.spans, span)
 }
@@ -113,34 +113,38 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 				}
 			}
 
-			context := TraceContext{
-				TraceID: rootSpanStore.earliestSpan.TraceID,
-			}
-
-			transactionID, err := uuid.NewRandom()
+			id, err := uuid.NewRandom()
+			spanID := strings.Replace(id.String(), "-", "", -1)[:16]
 			if err != nil {
 				return 0, err
 			}
 
-			context = TraceContext{
-				TraceID:     rootSpanStore.earliestSpan.TraceID,
-				SpanID:      strings.Replace(transactionID.String(), "-", "", -1)[:16],
-				Op:          rootSpanStore.earliestSpan.Op,
-				Description: rootSpanStore.earliestSpan.Description,
-			}
+			sentryTransaction := &SentryTransaction{}
+			if len(rootSpanStore.spans) == 0 {
+				// TODO: Account for this case
+			} else {
+				sentryTransaction = &SentryTransaction{
+					StartTimestamp: rootSpanStore.earliestSpan.StartTimestamp,
+					Timestamp:      rootSpanStore.latestSpan.Timestamp,
+					Contexts: TraceContext{
+						TraceID:     rootSpanStore.earliestSpan.TraceID,
+						SpanID:      spanID,
+						Op:          rootSpanStore.earliestSpan.Op,
+						Description: rootSpanStore.earliestSpan.Description,
+					},
+					Transaction: rootSpanStore.earliestSpan.Description,
+					Tags:        tags,
+					Spans:       sentrySpanStore.spans,
+				}
 
-			sentryTransaction := &SentryTransaction{
-				StartTimestamp: rootSpanStore.earliestSpan.StartTimestamp,
-				Timestamp:      rootSpanStore.latestSpan.Timestamp,
-				Contexts:       context,
-				Tags:           tags,
+				// If there are multiple root spans, we make them children to the transaction
+				if len(rootSpanStore.spans) > 1 {
+					for _, s := range rootSpanStore.spans {
+						s.ParentSpanID = spanID
+					}
+					sentryTransaction.Spans = append(sentryTransaction.Spans, rootSpanStore.spans...)
+				}
 			}
-
-			// if len(rootSpanStore.rootSpans) == 1 {
-			// 	sentryTransaction.Spans = sentrySpans
-			// } else {
-			// 	sentryTransaction
-			// }
 
 			transactions = append(transactions, sentryTransaction)
 		}
