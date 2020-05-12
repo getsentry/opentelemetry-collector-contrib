@@ -15,7 +15,6 @@
 package sentryexporter
 
 import (
-	"fmt"
 	"testing"
 	"time"
 
@@ -24,12 +23,6 @@ import (
 	otlptrace "github.com/open-telemetry/opentelemetry-proto/gen/go/trace/v1"
 	"github.com/stretchr/testify/assert"
 )
-
-// func TestGenerateSentryTraceID(t *testing.T) {
-// 	td := testdata.GenerateTraceDataOneSpan()
-// 	ilss := td.ResourceSpans().At(0).InstrumentationLibrarySpans().At(0)
-// 	assert.EqualValues(t, 2, ilss.Spans().Len())
-// }
 
 func TestGenerateTagsFromAttributes(t *testing.T) {
 	attrs := pdata.NewAttributeMap()
@@ -52,70 +45,86 @@ func TestGenerateTagsFromAttributes(t *testing.T) {
 }
 
 func TestGenerateStatusFromSpanStatus(t *testing.T) {
-	spanStatus := pdata.NewSpanStatus()
+	t.Run("with unknown status code", func(t *testing.T) {
+		spanStatus := pdata.NewSpanStatus()
 
-	status1, message1 := generateStatusFromSpanStatus(spanStatus)
+		status, message := generateStatusFromSpanStatus(spanStatus)
 
-	assert.Equal(t, "unknown", status1)
-	assert.Equal(t, "", message1)
+		assert.Equal(t, "unknown", status)
+		assert.Equal(t, "", message)
+	})
 
-	spanStatus.InitEmpty()
-	spanStatus.SetMessage("message")
-	spanStatus.SetCode(pdata.StatusCode(otlptrace.Status_ResourceExhausted))
+	t.Run("with status code", func(t *testing.T) {
+		spanStatus := pdata.NewSpanStatus()
+		spanStatus.InitEmpty()
+		spanStatus.SetMessage("message")
+		spanStatus.SetCode(pdata.StatusCode(otlptrace.Status_ResourceExhausted))
 
-	status2, message2 := generateStatusFromSpanStatus(spanStatus)
+		status, message := generateStatusFromSpanStatus(spanStatus)
 
-	assert.Equal(t, "resource_exhausted", status2)
-	assert.Equal(t, "message", message2)
+		assert.Equal(t, "resource_exhausted", status)
+		assert.Equal(t, "message", message)
+	})
 }
 
-/*
-
-&sentryexporter.SentrySpan{
-	TraceID:"01020304050607080807060504030201",
-	SpanID:"0102030405060708",
-	ParentSpanID:"0807060504030201",
-	Description:"test-name",
-	Op:"",
-	Tags:sentryexporter.Tags{"span_kind":"SPAN_KIND_UNSPECIFIED"},
-	EndTimestamp:"1969-12-31 19:00:01.23456789 -0500 EST",
-	Timestamp:"1969-12-31 19:00:00.000000123 -0500 EST",
-	Status:"unknown"
-}
-*/
-// TODO: Finish this test plz
 func TestSpanToSentrySpan(t *testing.T) {
-	t.Skip("Finish this test")
-	testSpan := pdata.NewSpan()
+	t.Run("with nil span", func(t *testing.T) {
+		testSpan := pdata.NewSpan()
 
-	// testSpan.InitEmpty()
+		sentrySpan, isRootSpan := spanToSentrySpan(testSpan)
+		assert.Nil(t, sentrySpan)
+		assert.False(t, isRootSpan)
+	})
 
-	sentrySpan1, isRootSpan1 := spanToSentrySpan(testSpan)
-	assert.Nil(t, sentrySpan1)
-	assert.False(t, isRootSpan1)
+	t.Run("with root span", func(t *testing.T) {
+		testSpan := pdata.NewSpan()
+		testSpan.InitEmpty()
 
-	testSpan.InitEmpty()
+		sentrySpan, isRootSpan := spanToSentrySpan(testSpan)
+		assert.NotNil(t, sentrySpan)
+		assert.True(t, isRootSpan)
+	})
 
-	traceID := []byte{1, 2, 3, 4, 5, 6, 7, 8, 8, 7, 6, 5, 4, 3, 2, 1}
-	spanID := []byte{1, 2, 3, 4, 5, 6, 7, 8}
-	parentSpanID := []byte{8, 7, 6, 5, 4, 3, 2, 1}
-	name := "test-name"
-	attributes := pdata.NewAttributeMap()
-	attributes.InsertString("key", "value")
-	var startTime pdata.TimestampUnixNano = 123
-	var endTime pdata.TimestampUnixNano = 1234567890
+	t.Run("with full span", func(t *testing.T) {
+		testSpan := pdata.NewSpan()
+		testSpan.InitEmpty()
 
-	testSpan.SetTraceID(traceID)
-	testSpan.SetSpanID(spanID)
-	testSpan.SetParentSpanID(parentSpanID)
-	testSpan.SetName(name)
-	testSpan.SetStartTime(startTime)
-	testSpan.SetEndTime(endTime)
+		traceID := []byte{1, 2, 3, 4, 5, 6, 7, 8, 8, 7, 6, 5, 4, 3, 2, 1}
+		spanID := []byte{1, 2, 3, 4, 5, 6, 7, 8}
+		parentSpanID := []byte{8, 7, 6, 5, 4, 3, 2, 1}
+		name := "span_name"
+		attributes := pdata.NewAttributeMap()
+		attributes.InsertString("key", "value")
+		var startTime pdata.TimestampUnixNano = 123
+		var endTime pdata.TimestampUnixNano = 1234567890
+		kind := pdata.SpanKindCLIENT
+		statusMessage := "message"
 
-	sentrySpan2, isRootSpan2 := spanToSentrySpan(testSpan)
-	fmt.Println(sentrySpan2)
-	assert.Nil(t, sentrySpan2)
-	assert.False(t, isRootSpan2)
+		testSpan.SetTraceID(traceID)
+		testSpan.SetSpanID(spanID)
+		testSpan.SetParentSpanID(parentSpanID)
+		testSpan.SetName(name)
+		testSpan.SetStartTime(startTime)
+		testSpan.SetEndTime(endTime)
+		testSpan.SetKind(kind)
+
+		testSpan.Status().InitEmpty()
+		testSpan.Status().SetMessage(statusMessage)
+		testSpan.Status().SetCode(pdata.StatusCode(otlptrace.Status_Ok))
+
+		sentrySpan, isRootSpan := spanToSentrySpan(testSpan)
+
+		assert.Equal(t, "01020304050607080807060504030201", sentrySpan.TraceID)
+		assert.Equal(t, "0102030405060708", sentrySpan.SpanID)
+		assert.Equal(t, "0807060504030201", sentrySpan.ParentSpanID)
+		assert.Equal(t, name, sentrySpan.Description)
+		assert.Equal(t, "", sentrySpan.Op)
+
+		// TODO: Finish the rest of the cases
+
+		assert.NotNil(t, sentrySpan)
+		assert.False(t, isRootSpan)
+	})
 }
 
 type SpanDescriptorsCase struct {
@@ -241,6 +250,10 @@ func TestSpanStore(t *testing.T) {
 	assert.Equal(t, store.latestSpan, StartSpan)
 
 	store.updateStore(EndSpan)
+	assert.Equal(t, store.earliestSpan, StartSpan)
+	assert.Equal(t, store.latestSpan, EndSpan)
+
+	store.updateStore(StartSpan)
 	assert.Equal(t, store.earliestSpan, StartSpan)
 	assert.Equal(t, store.latestSpan, EndSpan)
 

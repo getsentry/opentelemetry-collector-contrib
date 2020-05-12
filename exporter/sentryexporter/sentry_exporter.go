@@ -158,6 +158,7 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 
 // TODO: Span.Link
 // TODO; Span.Event -> create breadcrumbs
+// TODO: Span.TraceState()
 func spanToSentrySpan(span pdata.Span) (ss *SentrySpan, isRs bool) {
 	if span.IsNil() {
 		return nil, false
