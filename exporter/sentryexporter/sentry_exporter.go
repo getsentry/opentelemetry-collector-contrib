@@ -73,6 +73,7 @@ func spanToSentrySpan(span pdata.Span) (sentrySpan *SentrySpan, isRootSpan bool)
 	endTimestamp := UnixNanoToTime(span.EndTime())
 
 	status, message := generateStatusFromSpanStatus(span.Status())
+
 	if message != "" {
 		tags["status_message"] = message
 	}
@@ -181,30 +182,35 @@ func generateTagsFromAttributes(attrs pdata.AttributeMap) Tags {
 	return tags
 }
 
+var canonicalCodes = [...]string{
+	"ok",
+	"cancelled",
+	"unknown",
+	"invalid_argument",
+	"deadline_exceeded",
+	"not_found",
+	"already_exists",
+	"permission_denied",
+	"resource_exhausted",
+	"failed_precondition",
+	"aborted",
+	"out_of_range",
+	"unimplemented",
+	"internal",
+	"unavailable",
+	"data_loss",
+	"unauthenticated",
+}
+
 func generateStatusFromSpanStatus(status pdata.SpanStatus) (string, string) {
 	if status.IsNil() {
 		return "unknown", ""
 	}
 
-	codes := [...]string{
-		"ok",
-		"cancelled",
-		"unknown",
-		"invalid_argument",
-		"deadline_exceeded",
-		"not_found",
-		"already_exists",
-		"permission_denied",
-		"resource_exhausted",
-		"failed_precondition",
-		"aborted",
-		"out_of_range",
-		"unimplemented",
-		"internal",
-		"unavailable",
-		"data_loss",
-		"unauthenticated",
+	code := status.Code()
+	if code < 0 || int(code) >= len(canonicalCodes) {
+		return "unknown", "error code " + strconv.FormatInt(int64(code), 10)
 	}
 
-	return codes[status.Code()], status.Message()
+	return canonicalCodes[status.Code()], status.Message()
 }

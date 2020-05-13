@@ -224,4 +224,16 @@ func TestGenerateStatusFromSpanStatus(t *testing.T) {
 		assert.Equal(t, "resource_exhausted", status)
 		assert.Equal(t, "message", message)
 	})
+
+	t.Run("with unimplemented status code", func(t *testing.T) {
+		spanStatus := pdata.NewSpanStatus()
+		spanStatus.InitEmpty()
+		spanStatus.SetMessage("message")
+		spanStatus.SetCode(pdata.StatusCode(1337))
+
+		status, message := generateStatusFromSpanStatus(spanStatus)
+
+		assert.Equal(t, "unknown", status)
+		assert.Equal(t, "error code 1337", message)
+	})
 }
