@@ -56,11 +56,15 @@ func spanToSentrySpan(span pdata.Span) (sentrySpan *SentrySpan, isRootSpan bool)
 
 	traceID := span.TraceID().String()
 	spanID := span.SpanID().String()
-	parentSpanID := span.ParentSpanID().String()
 
+	isRootSpan = true
+	parentSpanID := ""
 	// If parent span id is empty, this span is a root span
 	// See: https://github.com/open-telemetry/opentelemetry-proto/blob/master/opentelemetry/proto/trace/v1/trace.proto#L82
-	isRootSpan = parentSpanID == ""
+	if psID := span.ParentSpanID(); len(psID) != 0 {
+		parentSpanID = span.ParentSpanID().String()
+		isRootSpan = false
+	}
 
 	attributes := span.Attributes()
 	name := span.Name()

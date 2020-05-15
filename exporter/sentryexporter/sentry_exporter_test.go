@@ -35,7 +35,14 @@ func TestSpanToSentrySpan(t *testing.T) {
 
 	t.Run("with root span", func(t *testing.T) {
 		testSpan := pdata.NewSpan()
+		traceID := []byte{1, 2, 3, 4, 5, 6, 7, 8, 8, 7, 6, 5, 4, 3, 2, 1}
+		spanID := []byte{1, 2, 3, 4, 5, 6, 7, 8}
+		var parentSpanID []byte
 		testSpan.InitEmpty()
+
+		testSpan.SetTraceID(traceID)
+		testSpan.SetSpanID(spanID)
+		testSpan.SetParentSpanID(parentSpanID)
 
 		sentrySpan, isRootSpan := spanToSentrySpan(testSpan)
 		assert.NotNil(t, sentrySpan)
