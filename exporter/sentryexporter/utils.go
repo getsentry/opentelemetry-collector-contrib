@@ -25,3 +25,13 @@ import (
 func UnixNanoToTime(u pdata.TimestampUnixNano) time.Time {
 	return time.Unix(0, int64(u)).UTC()
 }
+
+// AllZero checks if a byte slice contains only zeros
+func AllZero(s []byte) bool {
+	for _, v := range s {
+		if v != 0 {
+			return false
+		}
+	}
+	return true
+}

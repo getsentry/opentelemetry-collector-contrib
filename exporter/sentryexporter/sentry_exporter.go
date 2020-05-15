@@ -75,21 +75,14 @@ func CreateSentryExporter(config *Config) (component.TraceExporter, error) {
 // TODO: Span.Link
 // TODO; Span.Event -> create breadcrumbs
 // TODO: Span.TraceState()
-func spanToSentrySpan(span pdata.Span) (sentrySpan *SentrySpan, isRootSpan bool) {
+func spanToSentrySpan(span pdata.Span) (sentrySpan *SentrySpan) {
 	if span.IsNil() {
-		return nil, false
+		return nil
 	}
 
-	traceID := span.TraceID().String()
-	spanID := span.SpanID().String()
-
-	isRootSpan = true
 	parentSpanID := ""
-	// If parent span id is empty, this span is a root span.
-	// See: https://github.com/open-telemetry/opentelemetry-proto/blob/master/opentelemetry/proto/trace/v1/trace.proto#L82
-	if psID := span.ParentSpanID(); len(psID) != 0 {
-		parentSpanID = span.ParentSpanID().String()
-		isRootSpan = false
+	if psID := span.ParentSpanID(); !AllZero(psID) {
+		parentSpanID = psID.String()
 	}
 
 	attributes := span.Attributes()
@@ -98,9 +91,6 @@ func spanToSentrySpan(span pdata.Span) (sentrySpan *SentrySpan, isRootSpan bool)
 
 	op, description := generateSpanDescriptors(name, attributes, spanKind)
 	tags := generateTagsFromAttributes(attributes)
-
-	startTimestamp := UnixNanoToTime(span.StartTime())
-	endTimestamp := UnixNanoToTime(span.EndTime())
 
 	status, message := statusFromSpanStatus(span.Status())
 
@@ -112,81 +102,77 @@ func spanToSentrySpan(span pdata.Span) (sentrySpan *SentrySpan, isRootSpan bool)
 		tags["span_kind"] = spanKind.String()
 	}
 
-	sentrySpan = &SentrySpan{
-		TraceID:        traceID,
-		SpanID:         spanID,
+	return &SentrySpan{
+		TraceID:        span.TraceID().String(),
+		SpanID:         span.SpanID().String(),
 		ParentSpanID:   parentSpanID,
 		Description:    description,
 		Op:             op,
 		Tags:           tags,
-		StartTimestamp: startTimestamp,
-		Timestamp:      endTimestamp,
+		StartTimestamp: UnixNanoToTime(span.StartTime()),
+		EndTimestamp:   UnixNanoToTime(span.EndTime()),
 		Status:         status,
 	}
-
-	return sentrySpan, isRootSpan
 }
 
 // To generate span descriptors (op and description) for a particular span we use
 // Semantic Conventions described by the open telemetry specification.
 // https://github.com/open-telemetry/opentelemetry-specification/tree/master/specification/trace/semantic_conventions
 func generateSpanDescriptors(name string, attrs pdata.AttributeMap, spanKind pdata.SpanKind) (op string, description string) {
-	var opString strings.Builder
-	var dString strings.Builder
+	var opBuilder strings.Builder
+	var dBuilder strings.Builder
 
 	// If http.method exists, this is an http request span.
 	if httpMethod, ok := attrs.Get(conventions.AttributeHTTPMethod); ok {
-		opString.WriteString("http")
+		opBuilder.WriteString("http")
 
 		switch spanKind {
 		case pdata.SpanKindCLIENT:
-			opString.WriteString(".client")
+			opBuilder.WriteString(".client")
 		case pdata.SpanKindSERVER:
-			opString.WriteString(".server")
+			opBuilder.WriteString(".server")
 		}
 
 		// Ex. description="GET /api/users/{user_id}".
-		dString.WriteString(httpMethod.StringVal())
-		dString.WriteString(" ")
-		dString.WriteString(name)
+		fmt.Fprintf(&dBuilder, "%s %s", httpMethod.StringVal(), name)
 
-		return opString.String(), dString.String()
+		return opBuilder.String(), dBuilder.String()
 	}
 
 	// If db.type exists then this is a database call span.
 	if _, ok := attrs.Get(conventions.AttributeDBType); ok {
 		// TODO: Use more detailed op code?
-		opString.WriteString("db")
+		opBuilder.WriteString("db")
 
 		// Use DB statement (Ex "SELECT * FROM table") if possible as description.
 		if statement, okInst := attrs.Get(conventions.AttributeDBStatement); okInst {
-			dString.WriteString(statement.StringVal())
+			dBuilder.WriteString(statement.StringVal())
 		} else {
-			dString.WriteString(name)
+			dBuilder.WriteString(name)
 		}
 
-		return opString.String(), dString.String()
+		return opBuilder.String(), dBuilder.String()
 	}
 
 	// If rpc.service exists then this is a rpc call span.
 	if _, ok := attrs.Get(conventions.AttributeRPCService); ok {
-		opString.WriteString("rpc")
+		opBuilder.WriteString("rpc")
 
-		return opString.String(), name
+		return opBuilder.String(), name
 	}
 
 	// If messaging.system exists then this is a messaging system span.
 	if _, ok := attrs.Get("messaging.system"); ok {
-		opString.WriteString("message")
+		opBuilder.WriteString("message")
 
-		return opString.String(), name
+		return opBuilder.String(), name
 	}
 
 	// If faas.trigger exists then this is a function as a service span.
 	if trigger, ok := attrs.Get("faas.trigger"); ok {
-		opString.WriteString(trigger.StringVal())
+		opBuilder.WriteString(trigger.StringVal())
 
-		return opString.String(), name
+		return opBuilder.String(), name
 	}
 
 	// Default just use span.name.

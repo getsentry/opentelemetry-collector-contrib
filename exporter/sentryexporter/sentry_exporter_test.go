@@ -29,25 +29,32 @@ func TestSpanToSentrySpan(t *testing.T) {
 	t.Run("with nil span", func(t *testing.T) {
 		testSpan := pdata.NewSpan()
 
-		sentrySpan, isRootSpan := spanToSentrySpan(testSpan)
+		sentrySpan := spanToSentrySpan(testSpan)
 		assert.Nil(t, sentrySpan)
-		assert.False(t, isRootSpan)
 	})
 
-	t.Run("with root span", func(t *testing.T) {
+	t.Run("with root span and nil parent span_id", func(t *testing.T) {
 		testSpan := pdata.NewSpan()
-		traceID := []byte{1, 2, 3, 4, 5, 6, 7, 8, 8, 7, 6, 5, 4, 3, 2, 1}
-		spanID := []byte{1, 2, 3, 4, 5, 6, 7, 8}
-		var parentSpanID []byte
 		testSpan.InitEmpty()
 
-		testSpan.SetTraceID(traceID)
-		testSpan.SetSpanID(spanID)
+		var parentSpanID []byte
 		testSpan.SetParentSpanID(parentSpanID)
 
-		sentrySpan, isRootSpan := spanToSentrySpan(testSpan)
+		sentrySpan := spanToSentrySpan(testSpan)
 		assert.NotNil(t, sentrySpan)
-		assert.True(t, isRootSpan)
+		assert.True(t, sentrySpan.IsRootSpan())
+	})
+
+	t.Run("with root span and 0 byte slice", func(t *testing.T) {
+		testSpan := pdata.NewSpan()
+		testSpan.InitEmpty()
+
+		parentSpanID := []byte{0, 0, 0, 0, 0, 0, 0, 0}
+		testSpan.SetParentSpanID(parentSpanID)
+
+		sentrySpan := spanToSentrySpan(testSpan)
+		assert.NotNil(t, sentrySpan)
+		assert.True(t, sentrySpan.IsRootSpan())
 	})
 
 	t.Run("with full span", func(t *testing.T) {
@@ -77,10 +84,10 @@ func TestSpanToSentrySpan(t *testing.T) {
 		testSpan.Status().SetMessage(statusMessage)
 		testSpan.Status().SetCode(pdata.StatusCode(otlptrace.Status_Ok))
 
-		actual, isRootSpan := spanToSentrySpan(testSpan)
+		actual := spanToSentrySpan(testSpan)
 
 		assert.NotNil(t, actual)
-		assert.False(t, isRootSpan)
+		assert.False(t, actual.IsRootSpan())
 
 		expected := &SentrySpan{
 			TraceID:      "01020304050607080807060504030201",
@@ -94,7 +101,7 @@ func TestSpanToSentrySpan(t *testing.T) {
 				"status_message": statusMessage,
 			},
 			StartTimestamp: UnixNanoToTime(startTime),
-			Timestamp:      UnixNanoToTime(endTime),
+			EndTimestamp:   UnixNanoToTime(endTime),
 			Status:         "ok",
 		}
 

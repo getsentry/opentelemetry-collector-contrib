@@ -30,6 +30,13 @@ type SentrySpan struct {
 	Op             string    `json:"op,omitempty"`
 	Tags           Tags      `json:"tags,omitempty"`
 	StartTimestamp time.Time `json:"start_timestamp,omitempty"`
-	Timestamp      time.Time `json:"timestamp"`
+	EndTimestamp   time.Time `json:"timestamp"`
 	Status         string    `json:"status"`
+}
+
+// IsRootSpan determines if a span is a root span.
+// If parent span id is empty, then the span is a root span.
+// See: https://github.com/open-telemetry/opentelemetry-proto/blob/master/opentelemetry/proto/trace/v1/trace.proto#L82
+func (s SentrySpan) IsRootSpan() bool {
+	return s.ParentSpanID == ""
 }
