@@ -76,7 +76,7 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 		return 0, nil
 	}
 
-	orphanSpans := make([]*SentrySpan, 0, 100)
+	orphanSpans := make([]*SentrySpan, 0, td.SpanCount())
 
 	// Maps all child span ids to their root span.
 	idMap := make(IDMap)

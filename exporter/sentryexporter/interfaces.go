@@ -56,7 +56,7 @@ type TraceContext struct {
 type SentryTransaction struct {
 	*sentry.Event
 	StartTimestamp time.Time    `json:"start_timestamp,omitempty"`
-	Timestamp      time.Time    `json:"timestamp"`
+	EndTimestamp   time.Time    `json:"timestamp"`
 	Contexts       TraceContext `json:"contexts,omitempty"`
 	Transaction    string       `json:"transaction,omitempty"`
 }
