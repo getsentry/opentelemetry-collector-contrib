@@ -59,7 +59,7 @@ func spanToSentrySpan(span pdata.Span) (sentrySpan *SentrySpan, isRootSpan bool)
 
 	isRootSpan = true
 	parentSpanID := ""
-	// If parent span id is empty, this span is a root span
+	// If parent span id is empty, this span is a root span.
 	// See: https://github.com/open-telemetry/opentelemetry-proto/blob/master/opentelemetry/proto/trace/v1/trace.proto#L82
 	if psID := span.ParentSpanID(); len(psID) != 0 {
 		parentSpanID = span.ParentSpanID().String()
@@ -108,7 +108,7 @@ func generateSpanDescriptors(name string, attrs pdata.AttributeMap, spanKind pda
 	var opString strings.Builder
 	var dString strings.Builder
 
-	// if http.method exists, this is an http request span
+	// If http.method exists, this is an http request span.
 	if httpMethod, ok := attrs.Get(conventions.AttributeHTTPMethod); ok {
 		opString.WriteString("http")
 
@@ -119,7 +119,7 @@ func generateSpanDescriptors(name string, attrs pdata.AttributeMap, spanKind pda
 			opString.WriteString(".server")
 		}
 
-		// Ex. description="GET /api/users/{user_id}"
+		// Ex. description="GET /api/users/{user_id}".
 		dString.WriteString(httpMethod.StringVal())
 		dString.WriteString(" ")
 		dString.WriteString(name)
@@ -127,12 +127,12 @@ func generateSpanDescriptors(name string, attrs pdata.AttributeMap, spanKind pda
 		return opString.String(), dString.String()
 	}
 
-	// if db.type exists then this is a database call span
+	// If db.type exists then this is a database call span.
 	if _, ok := attrs.Get(conventions.AttributeDBType); ok {
 		// TODO: Use more detailed op code?
 		opString.WriteString("db")
 
-		// Use DB statement (Ex "SELECT * FROM table") if possible as description
+		// Use DB statement (Ex "SELECT * FROM table") if possible as description.
 		if statement, okInst := attrs.Get(conventions.AttributeDBStatement); okInst {
 			dString.WriteString(statement.StringVal())
 		} else {
@@ -142,28 +142,28 @@ func generateSpanDescriptors(name string, attrs pdata.AttributeMap, spanKind pda
 		return opString.String(), dString.String()
 	}
 
-	// if rpc.service exists then this is a rpc call span
+	// If rpc.service exists then this is a rpc call span.
 	if _, ok := attrs.Get(conventions.AttributeRPCService); ok {
 		opString.WriteString("rpc")
 
 		return opString.String(), name
 	}
 
-	// if messaging.system exists then this is a messaging system span
+	// If messaging.system exists then this is a messaging system span.
 	if _, ok := attrs.Get("messaging.system"); ok {
 		opString.WriteString("message")
 
 		return opString.String(), name
 	}
 
-	// if faas.trigger exists then this is a function as a service span
+	// If faas.trigger exists then this is a function as a service span.
 	if trigger, ok := attrs.Get("faas.trigger"); ok {
 		opString.WriteString(trigger.StringVal())
 
 		return opString.String(), name
 	}
 
-	// Default just use span.name
+	// Default just use span.name.
 	return "", name
 }
 
