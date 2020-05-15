@@ -17,6 +17,7 @@ package sentryexporter
 import (
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	otlptrace "github.com/open-telemetry/opentelemetry-proto/gen/go/trace/v1"
 
 	"github.com/open-telemetry/opentelemetry-collector/consumer/pdata"
@@ -76,22 +77,30 @@ func TestSpanToSentrySpan(t *testing.T) {
 		testSpan.Status().SetMessage(statusMessage)
 		testSpan.Status().SetCode(pdata.StatusCode(otlptrace.Status_Ok))
 
-		sentrySpan, isRootSpan := spanToSentrySpan(testSpan)
+		actual, isRootSpan := spanToSentrySpan(testSpan)
 
-		assert.Equal(t, "01020304050607080807060504030201", sentrySpan.TraceID)
-		assert.Equal(t, "0102030405060708", sentrySpan.SpanID)
-		assert.Equal(t, "0807060504030201", sentrySpan.ParentSpanID)
-		assert.Equal(t, name, sentrySpan.Description)
-		assert.Equal(t, "", sentrySpan.Op)
-		assert.Equal(t, "value", sentrySpan.Tags["key"])
-		assert.Equal(t, statusMessage, sentrySpan.Tags["status_message"])
-		assert.Equal(t, pdata.SpanKindCLIENT.String(), sentrySpan.Tags["span_kind"])
-		assert.Equal(t, UnixNanoToTime(startTime), sentrySpan.StartTimestamp)
-		assert.Equal(t, UnixNanoToTime(endTime), sentrySpan.Timestamp)
-		assert.Equal(t, "ok", sentrySpan.Status)
-
-		assert.NotNil(t, sentrySpan)
+		assert.NotNil(t, actual)
 		assert.False(t, isRootSpan)
+
+		expected := &SentrySpan{
+			TraceID:      "01020304050607080807060504030201",
+			SpanID:       "0102030405060708",
+			ParentSpanID: "0807060504030201",
+			Description:  name,
+			Op:           "",
+			Tags: map[string]string{
+				"key":            "value",
+				"span_kind":      pdata.SpanKindCLIENT.String(),
+				"status_message": statusMessage,
+			},
+			StartTimestamp: UnixNanoToTime(startTime),
+			Timestamp:      UnixNanoToTime(endTime),
+			Status:         "ok",
+		}
+
+		if diff := cmp.Diff(expected, actual); diff != "" {
+			t.Errorf("Span mismatch (-expected +actual):\n%s", diff)
+		}
 	})
 }
 
@@ -107,7 +116,7 @@ type SpanDescriptorsCase struct {
 }
 
 func TestGenerateSpanDescriptors(t *testing.T) {
-	allTestCases := []SpanDescriptorsCase{
+	testCases := []SpanDescriptorsCase{
 		{
 			testName: "http-client",
 			name:     "/api/users/{user_id}",
@@ -181,7 +190,7 @@ func TestGenerateSpanDescriptors(t *testing.T) {
 		},
 	}
 
-	for _, test := range allTestCases {
+	for _, test := range testCases {
 		t.Run(test.testName, func(t *testing.T) {
 			op, description := generateSpanDescriptors(test.name, test.attrs, test.spanKind)
 			assert.Equal(t, test.op, op)
@@ -210,37 +219,56 @@ func TestGenerateTagsFromAttributes(t *testing.T) {
 	assert.Equal(t, intVal, "321")
 }
 
-func TestGenerateStatusFromSpanStatus(t *testing.T) {
-	t.Run("with unknown status code", func(t *testing.T) {
-		spanStatus := pdata.NewSpanStatus()
+type SpanStatusCase struct {
+	testName string
+	// input
+	spanStatus pdata.SpanStatus
+	// output
+	status  string
+	message string
+}
 
-		status, message := generateStatusFromSpanStatus(spanStatus)
+func TestStatusFromSpanStatus(t *testing.T) {
+	testCases := []SpanStatusCase{
+		{
+			testName:   "with nil status",
+			spanStatus: pdata.NewSpanStatus(),
+			status:     "",
+			message:    "",
+		},
+		{
+			testName: "with status code",
+			spanStatus: func() pdata.SpanStatus {
+				spanStatus := pdata.NewSpanStatus()
+				spanStatus.InitEmpty()
+				spanStatus.SetMessage("message")
+				spanStatus.SetCode(pdata.StatusCode(otlptrace.Status_ResourceExhausted))
 
-		assert.Equal(t, "unknown", status)
-		assert.Equal(t, "", message)
-	})
+				return spanStatus
+			}(),
+			status:  "resource_exhausted",
+			message: "message",
+		},
+		{
+			testName: "with unimplemented status code",
+			spanStatus: func() pdata.SpanStatus {
+				spanStatus := pdata.NewSpanStatus()
+				spanStatus.InitEmpty()
+				spanStatus.SetMessage("message")
+				spanStatus.SetCode(pdata.StatusCode(1337))
 
-	t.Run("with status code", func(t *testing.T) {
-		spanStatus := pdata.NewSpanStatus()
-		spanStatus.InitEmpty()
-		spanStatus.SetMessage("message")
-		spanStatus.SetCode(pdata.StatusCode(otlptrace.Status_ResourceExhausted))
+				return spanStatus
+			}(),
+			status:  "unknown",
+			message: "error code 1337",
+		},
+	}
 
-		status, message := generateStatusFromSpanStatus(spanStatus)
-
-		assert.Equal(t, "resource_exhausted", status)
-		assert.Equal(t, "message", message)
-	})
-
-	t.Run("with unimplemented status code", func(t *testing.T) {
-		spanStatus := pdata.NewSpanStatus()
-		spanStatus.InitEmpty()
-		spanStatus.SetMessage("message")
-		spanStatus.SetCode(pdata.StatusCode(1337))
-
-		status, message := generateStatusFromSpanStatus(spanStatus)
-
-		assert.Equal(t, "unknown", status)
-		assert.Equal(t, "error code 1337", message)
-	})
+	for _, test := range testCases {
+		t.Run(test.testName, func(t *testing.T) {
+			status, message := statusFromSpanStatus(test.spanStatus)
+			assert.Equal(t, test.status, status)
+			assert.Equal(t, test.message, message)
+		})
+	}
 }

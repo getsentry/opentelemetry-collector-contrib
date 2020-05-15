@@ -16,6 +16,7 @@ package sentryexporter
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -23,6 +24,31 @@ import (
 	"github.com/open-telemetry/opentelemetry-collector/consumer/pdata"
 	"github.com/open-telemetry/opentelemetry-collector/exporter/exporterhelper"
 	"github.com/open-telemetry/opentelemetry-collector/translator/conventions"
+)
+
+var (
+	statusUnknown = "unknown"
+	// canonicalCodes maps OpenTelemetry span codes to Sentry's span status.
+	// See numeric codes in https://godoc.org/github.com/open-telemetry/opentelemetry-proto/gen/go/trace/v1#Status_StatusCode.
+	canonicalCodes = [...]string{
+		"ok",
+		"cancelled",
+		"unknown",
+		"invalid_argument",
+		"deadline_exceeded",
+		"not_found",
+		"already_exists",
+		"permission_denied",
+		"resource_exhausted",
+		"failed_precondition",
+		"aborted",
+		"out_of_range",
+		"unimplemented",
+		"internal",
+		"unavailable",
+		"data_loss",
+		"unauthenticated",
+	}
 )
 
 // SentryExporter defines the Sentry Exporter.
@@ -76,7 +102,7 @@ func spanToSentrySpan(span pdata.Span) (sentrySpan *SentrySpan, isRootSpan bool)
 	startTimestamp := UnixNanoToTime(span.StartTime())
 	endTimestamp := UnixNanoToTime(span.EndTime())
 
-	status, message := generateStatusFromSpanStatus(span.Status())
+	status, message := statusFromSpanStatus(span.Status())
 
 	if message != "" {
 		tags["status_message"] = message
@@ -186,35 +212,15 @@ func generateTagsFromAttributes(attrs pdata.AttributeMap) Tags {
 	return tags
 }
 
-var canonicalCodes = [...]string{
-	"ok",
-	"cancelled",
-	"unknown",
-	"invalid_argument",
-	"deadline_exceeded",
-	"not_found",
-	"already_exists",
-	"permission_denied",
-	"resource_exhausted",
-	"failed_precondition",
-	"aborted",
-	"out_of_range",
-	"unimplemented",
-	"internal",
-	"unavailable",
-	"data_loss",
-	"unauthenticated",
-}
-
-func generateStatusFromSpanStatus(status pdata.SpanStatus) (string, string) {
-	if status.IsNil() {
-		return "unknown", ""
+func statusFromSpanStatus(spanStatus pdata.SpanStatus) (status string, message string) {
+	if spanStatus.IsNil() {
+		return "", ""
 	}
 
-	code := status.Code()
+	code := spanStatus.Code()
 	if code < 0 || int(code) >= len(canonicalCodes) {
-		return "unknown", "error code " + strconv.FormatInt(int64(code), 10)
+		return statusUnknown, fmt.Sprintf("error code %d", code)
 	}
 
-	return canonicalCodes[status.Code()], status.Message()
+	return canonicalCodes[code], spanStatus.Message()
 }
