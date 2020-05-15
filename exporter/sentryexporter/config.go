@@ -16,10 +16,9 @@ package sentryexporter
 
 import "github.com/open-telemetry/opentelemetry-collector/config/configmodels"
 
-// Config defines the configuration for the Sentry Exporter
+// Config defines the configuration for the Sentry Exporter.
 type Config struct {
-	// squash ensures fields are correctly decoded in embedded struct.
-	configmodels.ExporterSettings `mapstructure:",squash"`
+	configmodels.ExporterSettings `mapstructure:",squash"` // squash ensures fields are correctly decoded in embedded struct.
 	// DSN to report transaction to Sentry. If the DSN is not set, no trace will be sent to Sentry.
-	Dsn string `mapstructure:"dsn"`
+	DSN string `mapstructure:"dsn"`
 }

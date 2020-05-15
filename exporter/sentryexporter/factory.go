@@ -16,6 +16,7 @@ package sentryexporter
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/open-telemetry/opentelemetry-collector/component"
 	"github.com/open-telemetry/opentelemetry-collector/config/configmodels"
@@ -25,16 +26,16 @@ const (
 	typeStr = "sentry"
 )
 
-// Factory is the factory for the Sentry Exporter
+// Factory is the factory for the Sentry Exporter.
 type Factory struct {
 }
 
-// Type gets the type of the Exporter config created by this factory
+// Type gets the type of the Exporter config created by this factory.
 func (f *Factory) Type() configmodels.Type {
 	return typeStr
 }
 
-// CreateDefaultConfig creates the default configuration for the Sentry Exporter
+// CreateDefaultConfig creates the default configuration for the Sentry Exporter.
 func (f *Factory) CreateDefaultConfig() configmodels.Exporter {
 	return &Config{
 		ExporterSettings: configmodels.ExporterSettings{
@@ -44,13 +45,14 @@ func (f *Factory) CreateDefaultConfig() configmodels.Exporter {
 	}
 }
 
-// CreateTraceExporter creates a trace exporter based on the Sentry config
-func (f *Factory) CreateTraceExporter(ctx context.Context, params component.ExporterCreateParams,
-	config configmodels.Exporter) (component.TraceExporter, error) {
+// CreateTraceExporter creates a trace exporter based on the Sentry config.
+func (f *Factory) CreateTraceExporter(ctx context.Context, params component.ExporterCreateParams, config configmodels.Exporter) (component.TraceExporter, error) {
+	sentryConfig, ok := config.(*Config)
+	if !ok {
+		return nil, fmt.Errorf("Unexpected config type: %T", config)
+	}
 
-	sentryConfig := config.(*Config)
-
-	// Create exporter based on sentry config
+	// Create exporter based on sentry config.
 	exp, err := CreateSentryExporter(sentryConfig)
 	return exp, err
 }

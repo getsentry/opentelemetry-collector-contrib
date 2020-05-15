@@ -22,9 +22,9 @@ import (
 	"github.com/open-telemetry/opentelemetry-collector/exporter/exporterhelper"
 )
 
-// SentryExporter defines the Sentry Exporter
+// SentryExporter defines the Sentry Exporter.
 type SentryExporter struct {
-	Dsn string
+	DSN string
 }
 
 // TODO: Add to function
@@ -32,10 +32,10 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 	return 0, nil
 }
 
-// CreateSentryExporter returns a new Sentry Exporter
+// CreateSentryExporter returns a new Sentry Exporter.
 func CreateSentryExporter(config *Config) (component.TraceExporter, error) {
 	s := &SentryExporter{
-		Dsn: config.Dsn,
+		DSN: config.DSN,
 	}
 
 	exp, err := exporterhelper.NewTraceExporter(config, s.pushTraceData)

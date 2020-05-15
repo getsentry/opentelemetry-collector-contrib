@@ -7,7 +7,7 @@ processors:
 exporters:
   sentry:
   sentry/2:
-    dsn: https://key@host:port/1
+    DSN: https://key@host:port/1
 
 service:
   pipelines:
