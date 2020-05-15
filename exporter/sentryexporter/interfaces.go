@@ -16,6 +16,8 @@ package sentryexporter
 
 import (
 	"time"
+
+	"github.com/getsentry/sentry-go"
 )
 
 // Tags describes a Sentry Tag.
@@ -39,4 +41,24 @@ type SentrySpan struct {
 func (s *SentrySpan) IsRootSpan() bool {
 	// See: https://github.com/open-telemetry/opentelemetry-proto/blob/28e27742/opentelemetry/proto/trace/v1/trace.proto#L82-L83
 	return s.ParentSpanID == ""
+}
+
+// TraceContext describes the context of the trace.
+type TraceContext struct {
+	TraceID     string `json:"trace_id"`
+	SpanID      string `json:"span_id"`
+	Op          string `json:"op,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// SentryTransaction describes a Sentry Transaction.
+// TODO: generate extra fields when creating envelope EventID, Type, User, Platform, SDK
+type SentryTransaction struct {
+	StartTimestamp time.Time            `json:"start_timestamp,omitempty"`
+	Timestamp      time.Time            `json:"timestamp"`
+	Contexts       TraceContext         `json:"contexts,omitempty"`
+	Transaction    string               `json:"transaction,omitempty"`
+	Tags           Tags                 `json:"tags,omitempty"`
+	Spans          []*SentrySpan        `json:"spans,omitempty"`
+	Breadcrumbs    []*sentry.Breadcrumb `json:"breadcrumbs,omitempty"`
 }
