@@ -56,3 +56,10 @@ func (f *Factory) CreateTraceExporter(ctx context.Context, params component.Expo
 	exp, err := CreateSentryExporter(sentryConfig)
 	return exp, err
 }
+
+// CreateMetricsExporter creates a metrics exporter based on the Sentry config.
+// This function is currently a no-op as Sentry does not accept metrics data
+func (f *Factory) CreateMetricsExporter(ctx context.Context, params component.ExporterCreateParams,
+	cfg configmodels.Exporter) (component.MetricsExporter, error) {
+	return nil, nil
+}
