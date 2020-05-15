@@ -18,10 +18,10 @@ import (
 	"time"
 )
 
-// Tags describes a Sentry Tag
+// Tags describes a Sentry Tag.
 type Tags map[string]string
 
-// SentrySpan describes a Span following the Sentry format
+// SentrySpan describes a Span following the Sentry format.
 type SentrySpan struct {
 	TraceID        string    `json:"trace_id"`
 	SpanID         string    `json:"span_id"`

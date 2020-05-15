@@ -21,7 +21,7 @@ import (
 )
 
 // UnixNanoToTime converts UNIX Epoch time in nanoseconds
-// to a Time struct
+// to a Time struct.
 func UnixNanoToTime(u pdata.TimestampUnixNano) time.Time {
 	return time.Unix(0, int64(u)).UTC()
 }
