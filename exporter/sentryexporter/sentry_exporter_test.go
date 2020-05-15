@@ -29,7 +29,7 @@ func TestSpanToSentrySpan(t *testing.T) {
 	t.Run("with nil span", func(t *testing.T) {
 		testSpan := pdata.NewSpan()
 
-		sentrySpan := spanToSentrySpan(testSpan)
+		sentrySpan, isRootSpan := convertToSentrySpan(testSpan)
 		assert.Nil(t, sentrySpan)
 	})
 
@@ -52,7 +52,7 @@ func TestSpanToSentrySpan(t *testing.T) {
 		parentSpanID := []byte{0, 0, 0, 0, 0, 0, 0, 0}
 		testSpan.SetParentSpanID(parentSpanID)
 
-		sentrySpan := spanToSentrySpan(testSpan)
+		sentrySpan := convertToSentrySpan(testSpan)
 		assert.NotNil(t, sentrySpan)
 		assert.True(t, sentrySpan.IsRootSpan())
 	})
@@ -84,7 +84,7 @@ func TestSpanToSentrySpan(t *testing.T) {
 		testSpan.Status().SetMessage(statusMessage)
 		testSpan.Status().SetCode(pdata.StatusCode(otlptrace.Status_Ok))
 
-		actual := spanToSentrySpan(testSpan)
+		actual := convertToSentrySpan(testSpan)
 
 		assert.NotNil(t, actual)
 		assert.False(t, actual.IsRootSpan())
@@ -278,4 +278,171 @@ func TestStatusFromSpanStatus(t *testing.T) {
 			assert.Equal(t, test.message, message)
 		})
 	}
+}
+
+func TestClassifyOrphanSpans(t *testing.T) {
+	rootSpan1 := &SentrySpan{
+		TraceID:      "d6c4f03650bd47699ec65c84352b6208",
+		SpanID:       "1cc4b26ab9094ef0",
+		ParentSpanID: "",
+		Description:  "/api/users/{user_id}",
+		Op:           "http.server",
+		Tags: map[string]string{
+			"organization":   "12345",
+			"status_message": "HTTP OK",
+			"span_kind":      "server",
+		},
+		StartTimestamp: UnixNanoToTime(5),
+		Timestamp:      UnixNanoToTime(10),
+		Status:         "ok",
+	}
+
+	childSpan1 := &SentrySpan{
+		TraceID:      "d6c4f03650bd47699ec65c84352b6208",
+		SpanID:       "93ba92db3fa24752",
+		ParentSpanID: "1cc4b26ab9094ef0",
+		Description:  `SELECT * FROM user WHERE "user"."id" = {id}`,
+		Op:           "db",
+		Tags: map[string]string{
+			"function_name":  "get_users",
+			"status_message": "MYSQL OK",
+			"span_kind":      "server",
+		},
+		StartTimestamp: UnixNanoToTime(5),
+		Timestamp:      UnixNanoToTime(7),
+		Status:         "ok",
+	}
+
+	childChildSpan1 := &SentrySpan{
+		TraceID:      "d6c4f03650bd47699ec65c84352b6208",
+		SpanID:       "1fa8913ec3814d34",
+		ParentSpanID: "93ba92db3fa24752",
+		Description:  `DB locked`,
+		Op:           "db",
+		Tags: map[string]string{
+			"db_status":      "oh no im locked rn",
+			"status_message": "MYSQL OK",
+			"span_kind":      "server",
+		},
+		StartTimestamp: UnixNanoToTime(6),
+		Timestamp:      UnixNanoToTime(7),
+		Status:         "ok",
+	}
+
+	childSpan2 := &SentrySpan{
+		TraceID:      "d6c4f03650bd47699ec65c84352b6208",
+		SpanID:       "34efcde268684bb0",
+		ParentSpanID: "1cc4b26ab9094ef0",
+		Description:  "Serialize stuff",
+		Op:           "",
+		Tags: map[string]string{
+			"span_kind": "server",
+		},
+		StartTimestamp: UnixNanoToTime(7),
+		Timestamp:      UnixNanoToTime(10),
+		Status:         "ok",
+	}
+
+	orphanSpan := &SentrySpan{
+		TraceID:        "d6c4f03650bd47699ec65c84352b6208",
+		SpanID:         "6241111811384fae",
+		ParentSpanID:   "1930bb5cc45c4003",
+		Description:    "A random span",
+		Op:             "",
+		Tags:           nil,
+		StartTimestamp: UnixNanoToTime(3),
+		Timestamp:      UnixNanoToTime(6),
+		Status:         "ok",
+	}
+
+	rootSpan2 := &SentrySpan{
+		TraceID:      "d6c4f03650bd47699ec65c84352b6208",
+		SpanID:       "4c7f56556ffe4e4a",
+		ParentSpanID: "",
+		Description:  "Navigating to fancy website",
+		Op:           "pageload",
+		Tags: map[string]string{
+			"status_message": "HTTP OK",
+			"span_kind":      "client",
+		},
+		StartTimestamp: UnixNanoToTime(0),
+		Timestamp:      UnixNanoToTime(5),
+		Status:         "ok",
+	}
+
+	root2childSpan := &SentrySpan{
+		TraceID:      "d6c4f03650bd47699ec65c84352b6208",
+		SpanID:       "7ff3c8daf8184fee",
+		ParentSpanID: "4c7f56556ffe4e4a",
+		Description:  "<FancyReactComponent />",
+		Op:           "react",
+		Tags: map[string]string{
+			"span_kind": "server",
+		},
+		StartTimestamp: UnixNanoToTime(4),
+		Timestamp:      UnixNanoToTime(5),
+		Status:         "ok",
+	}
+
+	t.Run("with no root spans", func(t *testing.T) {
+		idMap := make(IDMap)
+		ssMap := make(SSMap)
+
+		spans := []*SentrySpan{childSpan1, childSpan2}
+
+		orphanSpans := classifyOrphanSpans(spans, len(spans)+1, idMap, ssMap)
+		assert.Len(t, orphanSpans, 2)
+	})
+
+	t.Run("with no remaining orphans", func(t *testing.T) {
+		idMap := make(IDMap)
+		ssMap := make(SSMap)
+		spans := []*SentrySpan{childChildSpan1, childSpan1, childSpan2}
+
+		ssMap[rootSpan1.SpanID] = &SpanStore{
+			rootSpan:   rootSpan1,
+			childSpans: make([]*SentrySpan, 0),
+		}
+
+		idMap[rootSpan1.SpanID] = rootSpan1.SpanID
+		orphanSpans := classifyOrphanSpans(spans, len(spans)+1, idMap, ssMap)
+		assert.Len(t, orphanSpans, 0)
+	})
+
+	t.Run("with some remaining orphans", func(t *testing.T) {
+		idMap := make(IDMap)
+		ssMap := make(SSMap)
+		spans := []*SentrySpan{childChildSpan1, childSpan1, childSpan2, orphanSpan}
+
+		ssMap[rootSpan1.SpanID] = &SpanStore{
+			rootSpan:   rootSpan1,
+			childSpans: make([]*SentrySpan, 0),
+		}
+
+		idMap[rootSpan1.SpanID] = rootSpan1.SpanID
+		orphanSpans := classifyOrphanSpans(spans, len(spans)+1, idMap, ssMap)
+		assert.Len(t, orphanSpans, 1)
+		assert.Equal(t, orphanSpan, orphanSpans[0])
+	})
+
+	t.Run("with multiple root spans", func(t *testing.T) {
+		idMap := make(IDMap)
+		ssMap := make(SSMap)
+		spans := []*SentrySpan{childChildSpan1, childSpan1, root2childSpan, childSpan2}
+
+		ssMap[rootSpan1.SpanID] = &SpanStore{
+			rootSpan:   rootSpan1,
+			childSpans: make([]*SentrySpan, 0),
+		}
+		idMap[rootSpan1.SpanID] = rootSpan1.SpanID
+
+		ssMap[rootSpan2.SpanID] = &SpanStore{
+			rootSpan:   rootSpan2,
+			childSpans: make([]*SentrySpan, 0),
+		}
+		idMap[rootSpan2.SpanID] = rootSpan2.SpanID
+
+		orphanSpans := classifyOrphanSpans(spans, len(spans)+1, idMap, ssMap)
+		assert.Len(t, orphanSpans, 0)
+	})
 }
