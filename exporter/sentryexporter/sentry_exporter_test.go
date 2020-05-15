@@ -280,6 +280,16 @@ func TestStatusFromSpanStatus(t *testing.T) {
 	}
 }
 
+type ClassifyOrphanSpanTestCase struct {
+	testName string
+	// input
+	idMap IDMap
+	ssMap SSMap
+	spans []*SentrySpan
+	// output
+	assertion func(t *testing.T, orphanSpans []*SentrySpan)
+}
+
 func TestClassifyOrphanSpans(t *testing.T) {
 	rootSpan1 := &SentrySpan{
 		TraceID:      "d6c4f03650bd47699ec65c84352b6208",
@@ -384,65 +394,88 @@ func TestClassifyOrphanSpans(t *testing.T) {
 		Status:         "ok",
 	}
 
-	t.Run("with no root spans", func(t *testing.T) {
-		idMap := make(IDMap)
-		ssMap := make(SSMap)
+	testCases := []ClassifyOrphanSpanTestCase{
+		{
+			testName: "with no root spans",
+			idMap:    make(IDMap),
+			ssMap:    make(SSMap),
+			spans:    []*SentrySpan{childSpan1, childSpan2},
+			assertion: func(t *testing.T, orphanSpans []*SentrySpan) {
+				assert.Len(t, orphanSpans, 2)
+			},
+		},
+		{
+			testName: "with no remaining orphans",
+			idMap: func() IDMap {
+				idMap := make(IDMap)
+				idMap[rootSpan1.SpanID] = rootSpan1.SpanID
+				return idMap
+			}(),
+			ssMap: func() SSMap {
+				ssMap := make(SSMap)
+				ssMap[rootSpan1.SpanID] = &SpanStore{
+					rootSpan:   rootSpan1,
+					childSpans: make([]*SentrySpan, 0),
+				}
+				return ssMap
+			}(),
+			spans: []*SentrySpan{childChildSpan1, childSpan1, childSpan2},
+			assertion: func(t *testing.T, orphanSpans []*SentrySpan) {
+				assert.Len(t, orphanSpans, 0)
+			},
+		},
+		{
+			testName: "with some remaining orphans",
+			idMap: func() IDMap {
+				idMap := make(IDMap)
+				idMap[rootSpan1.SpanID] = rootSpan1.SpanID
+				return idMap
+			}(),
+			ssMap: func() SSMap {
+				ssMap := make(SSMap)
+				ssMap[rootSpan1.SpanID] = &SpanStore{
+					rootSpan:   rootSpan1,
+					childSpans: make([]*SentrySpan, 0),
+				}
+				return ssMap
+			}(),
+			spans: []*SentrySpan{childChildSpan1, childSpan1, childSpan2, orphanSpan},
+			assertion: func(t *testing.T, orphanSpans []*SentrySpan) {
+				assert.Len(t, orphanSpans, 1)
+				assert.Equal(t, orphanSpan, orphanSpans[0])
+			},
+		},
+		{
+			testName: "with some remaining orphans",
+			idMap: func() IDMap {
+				idMap := make(IDMap)
+				idMap[rootSpan1.SpanID] = rootSpan1.SpanID
+				idMap[rootSpan2.SpanID] = rootSpan2.SpanID
+				return idMap
+			}(),
+			ssMap: func() SSMap {
+				ssMap := make(SSMap)
+				ssMap[rootSpan1.SpanID] = &SpanStore{
+					rootSpan:   rootSpan1,
+					childSpans: make([]*SentrySpan, 0),
+				}
+				ssMap[rootSpan2.SpanID] = &SpanStore{
+					rootSpan:   rootSpan2,
+					childSpans: make([]*SentrySpan, 0),
+				}
+				return ssMap
+			}(),
+			spans: []*SentrySpan{childChildSpan1, childSpan1, root2childSpan, childSpan2},
+			assertion: func(t *testing.T, orphanSpans []*SentrySpan) {
+				assert.Len(t, orphanSpans, 0)
+			},
+		},
+	}
 
-		spans := []*SentrySpan{childSpan1, childSpan2}
-
-		orphanSpans := classifyOrphanSpans(spans, len(spans)+1, idMap, ssMap)
-		assert.Len(t, orphanSpans, 2)
-	})
-
-	t.Run("with no remaining orphans", func(t *testing.T) {
-		idMap := make(IDMap)
-		ssMap := make(SSMap)
-		spans := []*SentrySpan{childChildSpan1, childSpan1, childSpan2}
-
-		ssMap[rootSpan1.SpanID] = &SpanStore{
-			rootSpan:   rootSpan1,
-			childSpans: make([]*SentrySpan, 0),
-		}
-
-		idMap[rootSpan1.SpanID] = rootSpan1.SpanID
-		orphanSpans := classifyOrphanSpans(spans, len(spans)+1, idMap, ssMap)
-		assert.Len(t, orphanSpans, 0)
-	})
-
-	t.Run("with some remaining orphans", func(t *testing.T) {
-		idMap := make(IDMap)
-		ssMap := make(SSMap)
-		spans := []*SentrySpan{childChildSpan1, childSpan1, childSpan2, orphanSpan}
-
-		ssMap[rootSpan1.SpanID] = &SpanStore{
-			rootSpan:   rootSpan1,
-			childSpans: make([]*SentrySpan, 0),
-		}
-
-		idMap[rootSpan1.SpanID] = rootSpan1.SpanID
-		orphanSpans := classifyOrphanSpans(spans, len(spans)+1, idMap, ssMap)
-		assert.Len(t, orphanSpans, 1)
-		assert.Equal(t, orphanSpan, orphanSpans[0])
-	})
-
-	t.Run("with multiple root spans", func(t *testing.T) {
-		idMap := make(IDMap)
-		ssMap := make(SSMap)
-		spans := []*SentrySpan{childChildSpan1, childSpan1, root2childSpan, childSpan2}
-
-		ssMap[rootSpan1.SpanID] = &SpanStore{
-			rootSpan:   rootSpan1,
-			childSpans: make([]*SentrySpan, 0),
-		}
-		idMap[rootSpan1.SpanID] = rootSpan1.SpanID
-
-		ssMap[rootSpan2.SpanID] = &SpanStore{
-			rootSpan:   rootSpan2,
-			childSpans: make([]*SentrySpan, 0),
-		}
-		idMap[rootSpan2.SpanID] = rootSpan2.SpanID
-
-		orphanSpans := classifyOrphanSpans(spans, len(spans)+1, idMap, ssMap)
-		assert.Len(t, orphanSpans, 0)
-	})
+	for _, test := range testCases {
+		t.Run(test.testName, func(t *testing.T) {
+			orphanSpans := classifyOrphanSpans(test.spans, len(test.spans)+1, test.idMap, test.ssMap)
+			test.assertion(t, orphanSpans)
+		})
+	}
 }
