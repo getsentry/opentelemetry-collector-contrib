@@ -27,13 +27,13 @@ import (
 )
 
 var (
-	statusUnknown = "unknown"
+	sentryStatusUnknown = "unknown"
 	// canonicalCodes maps OpenTelemetry span codes to Sentry's span status.
 	// See numeric codes in https://godoc.org/github.com/open-telemetry/opentelemetry-proto/gen/go/trace/v1#Status_StatusCode.
 	canonicalCodes = [...]string{
 		"ok",
 		"cancelled",
-		"unknown",
+		sentryStatusUnknown,
 		"invalid_argument",
 		"deadline_exceeded",
 		"not_found",
@@ -219,7 +219,7 @@ func statusFromSpanStatus(spanStatus pdata.SpanStatus) (status string, message s
 
 	code := spanStatus.Code()
 	if code < 0 || int(code) >= len(canonicalCodes) {
-		return statusUnknown, fmt.Sprintf("error code %d", code)
+		return sentryStatusUnknown, fmt.Sprintf("error code %d", code)
 	}
 
 	return canonicalCodes[code], spanStatus.Message()
