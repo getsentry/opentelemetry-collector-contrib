@@ -29,7 +29,7 @@ func TestSpanToSentrySpan(t *testing.T) {
 	t.Run("with nil span", func(t *testing.T) {
 		testSpan := pdata.NewSpan()
 
-		sentrySpan, isRootSpan := convertToSentrySpan(testSpan)
+		sentrySpan := convertToSentrySpan(testSpan)
 		assert.Nil(t, sentrySpan)
 	})
 
@@ -40,7 +40,7 @@ func TestSpanToSentrySpan(t *testing.T) {
 		var parentSpanID []byte
 		testSpan.SetParentSpanID(parentSpanID)
 
-		sentrySpan := spanToSentrySpan(testSpan)
+		sentrySpan := convertToSentrySpan(testSpan)
 		assert.NotNil(t, sentrySpan)
 		assert.True(t, sentrySpan.IsRootSpan())
 	})
@@ -303,7 +303,7 @@ func TestClassifyOrphanSpans(t *testing.T) {
 			"span_kind":      "server",
 		},
 		StartTimestamp: UnixNanoToTime(5),
-		Timestamp:      UnixNanoToTime(10),
+		EndTimestamp:   UnixNanoToTime(10),
 		Status:         "ok",
 	}
 
@@ -319,7 +319,7 @@ func TestClassifyOrphanSpans(t *testing.T) {
 			"span_kind":      "server",
 		},
 		StartTimestamp: UnixNanoToTime(5),
-		Timestamp:      UnixNanoToTime(7),
+		EndTimestamp:   UnixNanoToTime(7),
 		Status:         "ok",
 	}
 
@@ -335,7 +335,7 @@ func TestClassifyOrphanSpans(t *testing.T) {
 			"span_kind":      "server",
 		},
 		StartTimestamp: UnixNanoToTime(6),
-		Timestamp:      UnixNanoToTime(7),
+		EndTimestamp:   UnixNanoToTime(7),
 		Status:         "ok",
 	}
 
@@ -349,7 +349,7 @@ func TestClassifyOrphanSpans(t *testing.T) {
 			"span_kind": "server",
 		},
 		StartTimestamp: UnixNanoToTime(7),
-		Timestamp:      UnixNanoToTime(10),
+		EndTimestamp:   UnixNanoToTime(10),
 		Status:         "ok",
 	}
 
@@ -361,7 +361,7 @@ func TestClassifyOrphanSpans(t *testing.T) {
 		Op:             "",
 		Tags:           nil,
 		StartTimestamp: UnixNanoToTime(3),
-		Timestamp:      UnixNanoToTime(6),
+		EndTimestamp:   UnixNanoToTime(6),
 		Status:         "ok",
 	}
 
@@ -376,7 +376,7 @@ func TestClassifyOrphanSpans(t *testing.T) {
 			"span_kind":      "client",
 		},
 		StartTimestamp: UnixNanoToTime(0),
-		Timestamp:      UnixNanoToTime(5),
+		EndTimestamp:   UnixNanoToTime(5),
 		Status:         "ok",
 	}
 
@@ -390,7 +390,7 @@ func TestClassifyOrphanSpans(t *testing.T) {
 			"span_kind": "server",
 		},
 		StartTimestamp: UnixNanoToTime(4),
-		Timestamp:      UnixNanoToTime(5),
+		EndTimestamp:   UnixNanoToTime(5),
 		Status:         "ok",
 	}
 

@@ -54,11 +54,9 @@ type TraceContext struct {
 // SentryTransaction describes a Sentry Transaction.
 // TODO: generate extra fields when creating envelope EventID, Type, User, Platform, SDK
 type SentryTransaction struct {
-	StartTimestamp time.Time            `json:"start_timestamp,omitempty"`
-	Timestamp      time.Time            `json:"timestamp"`
-	Contexts       TraceContext         `json:"contexts,omitempty"`
-	Transaction    string               `json:"transaction,omitempty"`
-	Tags           Tags                 `json:"tags,omitempty"`
-	Spans          []*SentrySpan        `json:"spans,omitempty"`
-	Breadcrumbs    []*sentry.Breadcrumb `json:"breadcrumbs,omitempty"`
+	*sentry.Event
+	StartTimestamp time.Time    `json:"start_timestamp,omitempty"`
+	Timestamp      time.Time    `json:"timestamp"`
+	Contexts       TraceContext `json:"contexts,omitempty"`
+	Transaction    string       `json:"transaction,omitempty"`
 }
