@@ -133,6 +133,22 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 	return 0, nil
 }
 
+func generateTransactions(ssMap SSMap, orphanSpans []*SentrySpan) []*SentryTransaction {
+	transactions := make([]*SentryTransaction, 0, len(ssMap)+len(orphanSpans))
+
+	for _, spanStore := range ssMap {
+		transaction := transactionFromSpans(spanStore.rootSpan, spanStore.childSpans)
+		transactions = append(transactions, transaction)
+	}
+
+	for _, span := range orphanSpans {
+		transaction := transactionFromSpans(span, nil)
+		transactions = append(transactions, transaction)
+	}
+
+	return transactions
+}
+
 func classifyOrphanSpans(orphanSpans []*SentrySpan, prevLength int, idMap IDMap, ssMap SSMap) []*SentrySpan {
 	if len(orphanSpans) == 0 || len(orphanSpans) == prevLength {
 		return orphanSpans
