@@ -15,60 +15,82 @@
 package sentryexporter
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
-	"strings"
+	"log"
+	"net/http"
+	"net/http/httputil"
+	"time"
 
 	"github.com/getsentry/sentry-go"
-	"github.com/google/uuid"
 )
 
-// EnvelopeHeader represents the top level header of a Sentry envelope
-type EnvelopeHeader struct {
-	EventID string `json:"event_id"`
-	DSN     string `json:"dsn"`
+const defaultTimeout = time.Second * 30
+
+// A SentryTransport is used to deliver events to a remote server
+type SentryTransport struct {
+	DSN       *sentry.Dsn
+	client    *http.Client
+	transport http.RoundTripper
+
+	// HTTP Client request timeout. Defaults to 30 seconds.
+	Timeout time.Duration
 }
 
-func generateEnvelope(transaction *SentryTransaction, DSN *sentry.Dsn) (envelope string, err error) {
-	eventID, err := uuid.NewRandom()
+// NewSentryTransport returns a new pre-configured instance of SentryTransport
+func NewSentryTransport() *SentryTransport {
+	return &SentryTransport{
+		Timeout: defaultTimeout,
+	}
+}
+
+// Configure configures the SentryTransport based on provided config
+func (t *SentryTransport) Configure(config *Config) error {
+	DSN, err := sentry.NewDsn(config.DSN)
 	if err != nil {
-		return "", err
+		return err
 	}
 
-	header := &EnvelopeHeader{
-		EventID: eventID.String(),
-		DSN:     DSN.String(),
+	t.DSN = DSN
+
+	t.client = &http.Client{
+		Transport: t.transport,
+		Timeout:   t.Timeout,
 	}
 
-	headerJSON, err := json.Marshal(header)
+	return nil
+}
+
+// SendTransaction send a transaction to a remote server
+func (t *SentryTransport) SendTransaction(transaction *SentryTransaction) error {
+	body, err := json.Marshal(transaction)
 	if err != nil {
-		return "", err
+		return err
 	}
 
-	var env strings.Builder
+	request, _ := http.NewRequest(
+		http.MethodPost,
+		t.DSN.StoreAPIURL().String(),
+		bytes.NewBuffer(body),
+	)
 
-	// Header
-	_, err = fmt.Fprintf(&env, "%s%s", headerJSON, "\n")
+	for headerKey, headerValue := range t.DSN.RequestHeaders() {
+		request.Header.Set(headerKey, headerValue)
+	}
+
+	_, err = t.client.Do(request)
 	if err != nil {
-		return "", err
+		return fmt.Errorf("There was an issue with sending an event: %v", err)
 	}
 
-	// Item Header
-	_, err = fmt.Fprintf(&env, "%s%s", `{"type":"transaction"}`, "\n")
+	return nil
+}
+
+func printResponse(r *http.Response) {
+	requestDump, err := httputil.DumpResponse(r, true)
 	if err != nil {
-		return "", err
+		log.Print(err)
 	}
-
-	transactionJSON, err := json.Marshal(transaction)
-	if err != nil {
-		return "", err
-	}
-
-	// Item Payload
-	_, err = fmt.Fprintf(&env, "%s%s", transactionJSON, "\n")
-	if err != nil {
-		return "", err
-	}
-
-	return env.String(), nil
+	log.Print(string(requestDump))
 }

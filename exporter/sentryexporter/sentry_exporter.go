@@ -49,11 +49,13 @@ var (
 		"data_loss",
 		"unauthenticated",
 	}
+
+	otelSentryExporterVersion = "0.0.1"
 )
 
 // SentryExporter defines the Sentry Exporter.
 type SentryExporter struct {
-	DSN string
+	config *Config
 }
 
 // IDMap maps a span_id to a root span span_id.
@@ -76,7 +78,9 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 		return 0, nil
 	}
 
-	orphanSpans := make([]*SentrySpan, 0, td.SpanCount())
+	numOfSpans := td.SpanCount()
+
+	orphanSpans := make([]*SentrySpan, 0, numOfSpans)
 
 	// Maps all child span ids to their root span.
 	idMap := make(IDMap)
@@ -89,12 +93,16 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 			continue
 		}
 
+		resourceTags := generateTagsFromAttributes(rs.Resource().Attributes())
+
 		ilss := rs.InstrumentationLibrarySpans()
 		for j := 0; j < ilss.Len(); j++ {
 			ils := ilss.At(j)
 			if ils.IsNil() {
 				continue
 			}
+
+			library := ils.InstrumentationLibrary()
 
 			spans := ils.Spans()
 			for k := 0; k < spans.Len(); k++ {
@@ -103,7 +111,7 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 					continue
 				}
 
-				sentrySpan := convertToSentrySpan(otelSpan)
+				sentrySpan := convertToSentrySpan(otelSpan, resourceTags, library)
 
 				if sentrySpan.IsRootSpan() {
 					// Add root span to span store map
@@ -127,10 +135,23 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 
 	orphanSpans = classifyOrphanSpans(orphanSpans, len(orphanSpans)+1, idMap, ssMap)
 
-	// TODO: Use orphanSpans and ssMap to generate transactions
+	transactions := generateTransactions(ssMap, orphanSpans)
 
-	// TODO: Correctly return dropped spans
-	return 0, nil
+	droppedSpans = 0
+	transport := NewSentryTransport()
+	configErr := transport.Configure(s.config)
+	if configErr != nil {
+		return numOfSpans, configErr
+	}
+
+	for _, t := range transactions {
+		err := transport.SendTransaction(t)
+		if err != nil {
+			droppedSpans += 1 + len(t.Spans)
+		}
+	}
+
+	return droppedSpans, nil
 }
 
 func generateTransactions(ssMap SSMap, orphanSpans []*SentrySpan) []*SentryTransaction {
@@ -171,7 +192,7 @@ func classifyOrphanSpans(orphanSpans []*SentrySpan, prevLength int, idMap IDMap,
 // TODO: Span.Link
 // TODO; Span.Event -> create breadcrumbs
 // TODO: Span.TraceState()
-func convertToSentrySpan(span pdata.Span) (sentrySpan *SentrySpan) {
+func convertToSentrySpan(span pdata.Span, resourceTags Tags, library pdata.InstrumentationLibrary) (sentrySpan *SentrySpan) {
 	if span.IsNil() {
 		return nil
 	}
@@ -198,7 +219,7 @@ func convertToSentrySpan(span pdata.Span) (sentrySpan *SentrySpan) {
 		tags["span_kind"] = spanKind.String()
 	}
 
-	return &SentrySpan{
+	sentrySpan = &SentrySpan{
 		TraceID:        span.TraceID().String(),
 		SpanID:         span.SpanID().String(),
 		ParentSpanID:   parentSpanID,
@@ -208,7 +229,26 @@ func convertToSentrySpan(span pdata.Span) (sentrySpan *SentrySpan) {
 		StartTimestamp: UnixNanoToTime(span.StartTime()),
 		EndTimestamp:   UnixNanoToTime(span.EndTime()),
 		Status:         status,
+		ResourceTags:   resourceTags,
 	}
+
+	if !library.IsNil() {
+		name := library.Name()
+		version := library.Version()
+
+		if name != "" && version != "" {
+			sentrySpan.LibName = name
+			sentrySpan.LibVersion = version
+		} else {
+			sentrySpan.LibName = "otel.sentry.exporter"
+			sentrySpan.LibVersion = otelSentryExporterVersion
+		}
+	} else {
+		sentrySpan.LibName = "otel.sentry.exporter"
+		sentrySpan.LibVersion = otelSentryExporterVersion
+	}
+
+	return sentrySpan
 }
 
 // To generate span descriptors (op and description) for a particular span we use
@@ -310,10 +350,8 @@ func statusFromSpanStatus(spanStatus pdata.SpanStatus) (status string, message s
 // CreateSentryExporter returns a new Sentry Exporter.
 func CreateSentryExporter(config *Config) (component.TraceExporter, error) {
 	s := &SentryExporter{
-		DSN: config.DSN,
+		config: config,
 	}
 
-	exp, err := exporterhelper.NewTraceExporter(config, s.pushTraceData)
-
-	return exp, err
+	return exporterhelper.NewTraceExporter(config, s.pushTraceData)
 }

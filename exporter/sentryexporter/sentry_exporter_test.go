@@ -40,7 +40,7 @@ func TestSpanToSentrySpan(t *testing.T) {
 	t.Run("with nil span", func(t *testing.T) {
 		testSpan := pdata.NewSpan()
 
-		sentrySpan := convertToSentrySpan(testSpan)
+		sentrySpan := convertToSentrySpan(testSpan, Tags{}, pdata.NewInstrumentationLibrary())
 		assert.Nil(t, sentrySpan)
 	})
 
@@ -51,7 +51,7 @@ func TestSpanToSentrySpan(t *testing.T) {
 		var parentSpanID []byte
 		testSpan.SetParentSpanID(parentSpanID)
 
-		sentrySpan := convertToSentrySpan(testSpan)
+		sentrySpan := convertToSentrySpan(testSpan, Tags{}, pdata.NewInstrumentationLibrary())
 		assert.NotNil(t, sentrySpan)
 		assert.True(t, sentrySpan.IsRootSpan())
 	})
@@ -63,7 +63,7 @@ func TestSpanToSentrySpan(t *testing.T) {
 		parentSpanID := []byte{0, 0, 0, 0, 0, 0, 0, 0}
 		testSpan.SetParentSpanID(parentSpanID)
 
-		sentrySpan := convertToSentrySpan(testSpan)
+		sentrySpan := convertToSentrySpan(testSpan, Tags{}, pdata.NewInstrumentationLibrary())
 		assert.NotNil(t, sentrySpan)
 		assert.True(t, sentrySpan.IsRootSpan())
 	})
@@ -80,6 +80,13 @@ func TestSpanToSentrySpan(t *testing.T) {
 		var endTime pdata.TimestampUnixNano = 1234567890
 		kind := pdata.SpanKindCLIENT
 		statusMessage := "message"
+		resourceTags := Tags{
+			"service_name": "basic-service",
+		}
+		lib := pdata.NewInstrumentationLibrary()
+		lib.InitEmpty()
+		lib.SetName("otel-python")
+		lib.SetVersion("0.0.1")
 
 		testSpan.Attributes().InsertString("key", "value")
 
@@ -95,7 +102,7 @@ func TestSpanToSentrySpan(t *testing.T) {
 		testSpan.Status().SetMessage(statusMessage)
 		testSpan.Status().SetCode(pdata.StatusCode(otlptrace.Status_Ok))
 
-		actual := convertToSentrySpan(testSpan)
+		actual := convertToSentrySpan(testSpan, resourceTags, lib)
 
 		assert.NotNil(t, actual)
 		assert.False(t, actual.IsRootSpan())
@@ -114,6 +121,9 @@ func TestSpanToSentrySpan(t *testing.T) {
 			StartTimestamp: UnixNanoToTime(startTime),
 			EndTimestamp:   UnixNanoToTime(endTime),
 			Status:         "ok",
+			LibName:        "otel-python",
+			LibVersion:     "0.0.1",
+			ResourceTags:   resourceTags,
 		}
 
 		if diff := cmp.Diff(expected, actual); diff != "" {
