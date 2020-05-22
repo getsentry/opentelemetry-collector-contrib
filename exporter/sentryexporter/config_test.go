@@ -45,10 +45,6 @@ func TestLoadConfig(t *testing.T) {
 			NameVal: "sentry/2",
 			TypeVal: "sentry",
 		},
-<<<<<<< HEAD
 		DSN: "https://key@host/path/id",
-=======
-		DSN: "https://publicKey:secretKey@host/path/42",
->>>>>>> Generate envelope
 	})
 }

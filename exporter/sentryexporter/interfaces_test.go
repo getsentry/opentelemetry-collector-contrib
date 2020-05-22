@@ -74,7 +74,7 @@ func TestMarshalStruct(t *testing.T) {
 }
 
 func TestTransactionEnvelope(t *testing.T) {
-	DSN, err := sentry.NewDsn("https://publicKey:secretKey@host/path/42")
+	DSN, err := sentry.NewDsn("https://key@host/path/42")
 	if err != nil {
 		t.Fatal(err)
 	}

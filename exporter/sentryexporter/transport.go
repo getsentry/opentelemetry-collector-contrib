@@ -18,9 +18,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
-	"net/http/httputil"
 	"time"
 
 	"github.com/getsentry/sentry-go"
@@ -85,12 +83,4 @@ func (t *SentryTransport) SendTransaction(transaction *SentryTransaction) error 
 	}
 
 	return nil
-}
-
-func printResponse(r *http.Response) {
-	requestDump, err := httputil.DumpResponse(r, true)
-	if err != nil {
-		log.Print(err)
-	}
-	log.Print(string(requestDump))
 }

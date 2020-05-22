@@ -55,12 +55,12 @@ type SentrySpan struct {
 func (s SentrySpan) MarshalJSON() ([]byte, error) {
 	type alias SentrySpan
 	return json.Marshal(&struct {
-		StartTimestamp string `json:"start_timestamp,omitempty"`
-		EndTimestamp   string `json:"timestamp"`
+		StartTimestamp time.Time `json:"start_timestamp,omitempty"`
+		EndTimestamp   time.Time `json:"timestamp"`
 		*alias
 	}{
-		StartTimestamp: s.StartTimestamp.UTC().Format(time.RFC3339),
-		EndTimestamp:   s.EndTimestamp.UTC().Format(time.RFC3339),
+		StartTimestamp: s.StartTimestamp.UTC(),
+		EndTimestamp:   s.EndTimestamp.UTC(),
 		alias:          (*alias)(&s),
 	})
 }
@@ -132,14 +132,14 @@ func (t *SentryTransaction) Envelope(DSN *sentry.Dsn) (envelope string, err erro
 func (t SentryTransaction) MarshalJSON() ([]byte, error) {
 	type alias SentryTransaction
 	return json.Marshal(&struct {
-		StartTimestamp string `json:"start_timestamp,omitempty"`
-		Timestamp      string `json:"timestamp"`
-		Type           string `json:"type"`
-		Trace          string `json:"trace,omitempty"`
+		StartTimestamp time.Time `json:"start_timestamp,omitempty"`
+		Timestamp      time.Time `json:"timestamp"`
+		Type           string    `json:"type"`
+		Trace          string    `json:"trace,omitempty"`
 		*alias
 	}{
-		StartTimestamp: t.StartTimestamp.UTC().Format(time.RFC3339),
-		Timestamp:      t.Timestamp.UTC().Format(time.RFC3339),
+		StartTimestamp: t.StartTimestamp.UTC(),
+		Timestamp:      t.Timestamp.UTC(),
 		Type:           "transaction",
 		alias:          (*alias)(&t),
 	})
