@@ -100,8 +100,8 @@ func TestSpanToSentrySpan(t *testing.T) {
 				"span_kind":      pdata.SpanKindCLIENT.String(),
 				"status_message": statusMessage,
 			},
-			StartTimestamp: UnixNanoToTime(startTime),
-			EndTimestamp:   UnixNanoToTime(endTime),
+			StartTimestamp: unixNanoToTime(startTime),
+			EndTimestamp:   unixNanoToTime(endTime),
 			Status:         "ok",
 		}
 

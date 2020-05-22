@@ -81,7 +81,7 @@ func spanToSentrySpan(span pdata.Span) (sentrySpan *SentrySpan) {
 	}
 
 	parentSpanID := ""
-	if psID := span.ParentSpanID(); !AllZero(psID) {
+	if psID := span.ParentSpanID(); !isAllZero(psID) {
 		parentSpanID = psID.String()
 	}
 
@@ -109,8 +109,8 @@ func spanToSentrySpan(span pdata.Span) (sentrySpan *SentrySpan) {
 		Description:    description,
 		Op:             op,
 		Tags:           tags,
-		StartTimestamp: UnixNanoToTime(span.StartTime()),
-		EndTimestamp:   UnixNanoToTime(span.EndTime()),
+		StartTimestamp: unixNanoToTime(span.StartTime()),
+		EndTimestamp:   unixNanoToTime(span.EndTime()),
 		Status:         status,
 	}
 }
@@ -121,6 +121,10 @@ func spanToSentrySpan(span pdata.Span) (sentrySpan *SentrySpan) {
 func generateSpanDescriptors(name string, attrs pdata.AttributeMap, spanKind pdata.SpanKind) (op string, description string) {
 	var opBuilder strings.Builder
 	var dBuilder strings.Builder
+
+	// Generating span descriptors operates under the assumption that only one of the conventions are present.
+	// In the possible case that multiple convention attributes are available, conventions are selected based
+	// on what is most likely and what is most useful (ex. http is prioritized over FaaS)
 
 	// If http.method exists, this is an http request span.
 	if httpMethod, ok := attrs.Get(conventions.AttributeHTTPMethod); ok {
