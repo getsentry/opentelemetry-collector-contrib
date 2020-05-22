@@ -75,7 +75,7 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 	// Maps all child span ids to their root span.
 	idMap := make(map[string]string)
 	// Maps root span id to a root span tree.
-	ssMap := make(map[string]*rootSpanTree)
+	rootSpanTreeMap := make(map[string]*rootSpanTree)
 
 	for i := 0; i < resourceSpans.Len(); i++ {
 		rs := resourceSpans.At(i)
@@ -101,7 +101,7 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 
 				if sentrySpan.IsRootSpan() {
 					// Add root span to span store map
-					ssMap[sentrySpan.SpanID] = &rootSpanTree{
+					rootSpanTreeMap[sentrySpan.SpanID] = &rootSpanTree{
 						rootSpan:   sentrySpan,
 						childSpans: make([]*SentrySpan, 0),
 					}
@@ -110,7 +110,7 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 				} else {
 					if rootSpanID, ok := idMap[sentrySpan.ParentSpanID]; ok {
 						idMap[sentrySpan.SpanID] = rootSpanID
-						ssMap[rootSpanID].childSpans = append(ssMap[rootSpanID].childSpans, sentrySpan)
+						rootSpanTreeMap[rootSpanID].childSpans = append(rootSpanTreeMap[rootSpanID].childSpans, sentrySpan)
 					} else {
 						orphanSpans = append(orphanSpans, sentrySpan)
 					}
@@ -119,16 +119,16 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 		}
 	}
 
-	orphanSpans = classifyOrphanSpans(orphanSpans, len(orphanSpans)+1, idMap, ssMap)
+	orphanSpans = classifyOrphanSpans(orphanSpans, len(orphanSpans)+1, idMap, rootSpanTreeMap)
 
-	// TODO: Use orphanSpans and ssMap to generate transactions
+	// TODO: Use orphanSpans and rootSpanTreeMap to generate transactions
 
 	// TODO: Correctly return dropped spans
 	return 0, nil
 }
 
 // classifyOrphanSpans recursively classifies orphanSpans to a root span tree
-func classifyOrphanSpans(orphanSpans []*SentrySpan, prevLength int, idMap map[string]string, ssMap map[string]*rootSpanTree) []*SentrySpan {
+func classifyOrphanSpans(orphanSpans []*SentrySpan, prevLength int, idMap map[string]string, rootSpanTreeMap map[string]*rootSpanTree) []*SentrySpan {
 	if len(orphanSpans) == 0 || len(orphanSpans) == prevLength {
 		return orphanSpans
 	}
@@ -138,13 +138,13 @@ func classifyOrphanSpans(orphanSpans []*SentrySpan, prevLength int, idMap map[st
 	for _, span := range orphanSpans {
 		if rootSpanID, ok := idMap[span.ParentSpanID]; ok {
 			idMap[span.SpanID] = rootSpanID
-			ssMap[rootSpanID].childSpans = append(ssMap[rootSpanID].childSpans, span)
+			rootSpanTreeMap[rootSpanID].childSpans = append(rootSpanTreeMap[rootSpanID].childSpans, span)
 		} else {
 			newOrphanSpans = append(newOrphanSpans, span)
 		}
 	}
 
-	return classifyOrphanSpans(newOrphanSpans, len(orphanSpans), idMap, ssMap)
+	return classifyOrphanSpans(newOrphanSpans, len(orphanSpans), idMap, rootSpanTreeMap)
 }
 
 // TODO: Span.Link
