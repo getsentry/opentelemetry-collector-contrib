@@ -58,17 +58,17 @@ type SentryExporter struct {
 	transport *SentryTransport
 }
 
-// IDMap maps a span_id to a root span span_id.
-type IDMap map[string]string
-
 // SpanStore stores a root span and it's child spans.
 type SpanStore struct {
 	rootSpan   *SentrySpan
 	childSpans []*SentrySpan
 }
 
-// SSMap maps a root span span_id to a SpanStore.
-type SSMap map[string]*SpanStore
+// rootSpanTree stores a root span and it's child spans.
+type rootSpanTree struct {
+	rootSpan   *SentrySpan
+	childSpans []*SentrySpan
+}
 
 // TODO: Add to function
 func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (droppedSpans int, err error) {
@@ -78,14 +78,12 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 		return 0, nil
 	}
 
-	numOfSpans := td.SpanCount()
-
-	orphanSpans := make([]*SentrySpan, 0, numOfSpans)
+	orphanSpans := make([]*SentrySpan, 0, td.SpanCount())
 
 	// Maps all child span ids to their root span.
-	idMap := make(IDMap)
-	// Maps root span id to a root span and it's child span.
-	ssMap := make(SSMap)
+	idMap := make(map[string]string)
+	// Maps root span id to a root span tree.
+	rootSpanTreeMap := make(map[string]*rootSpanTree)
 
 	for i := 0; i < resourceSpans.Len(); i++ {
 		rs := resourceSpans.At(i)
@@ -115,7 +113,7 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 
 				if sentrySpan.IsRootSpan() {
 					// Add root span to span store map
-					ssMap[sentrySpan.SpanID] = &SpanStore{
+					rootSpanTreeMap[sentrySpan.SpanID] = &rootSpanTree{
 						rootSpan:   sentrySpan,
 						childSpans: make([]*SentrySpan, 0),
 					}
@@ -124,7 +122,7 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 				} else {
 					if rootSpanID, ok := idMap[sentrySpan.ParentSpanID]; ok {
 						idMap[sentrySpan.SpanID] = rootSpanID
-						ssMap[rootSpanID].childSpans = append(ssMap[rootSpanID].childSpans, sentrySpan)
+						rootSpanTreeMap[rootSpanID].childSpans = append(rootSpanTreeMap[rootSpanID].childSpans, sentrySpan)
 					} else {
 						orphanSpans = append(orphanSpans, sentrySpan)
 					}
@@ -133,9 +131,9 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 		}
 	}
 
-	orphanSpans = classifyOrphanSpans(orphanSpans, len(orphanSpans)+1, idMap, ssMap)
+	orphanSpans = classifyOrphanSpans(orphanSpans, len(orphanSpans)+1, idMap, rootSpanTreeMap)
 
-	transactions := generateTransactions(ssMap, orphanSpans)
+	transactions := generateTransactions(rootSpanTreeMap, orphanSpans)
 
 	droppedSpans = 0
 	for _, t := range transactions {
@@ -148,10 +146,10 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 	return droppedSpans, nil
 }
 
-func generateTransactions(ssMap SSMap, orphanSpans []*SentrySpan) []*SentryTransaction {
-	transactions := make([]*SentryTransaction, 0, len(ssMap)+len(orphanSpans))
+func generateTransactions(rootSpanTreeMap map[string]*rootSpanTree, orphanSpans []*SentrySpan) []*SentryTransaction {
+	transactions := make([]*SentryTransaction, 0, len(rootSpanTreeMap)+len(orphanSpans))
 
-	for _, spanStore := range ssMap {
+	for _, spanStore := range rootSpanTreeMap {
 		transaction := transactionFromSpans(spanStore.rootSpan, spanStore.childSpans)
 		transactions = append(transactions, transaction)
 	}
@@ -164,7 +162,7 @@ func generateTransactions(ssMap SSMap, orphanSpans []*SentrySpan) []*SentryTrans
 	return transactions
 }
 
-func classifyOrphanSpans(orphanSpans []*SentrySpan, prevLength int, idMap IDMap, ssMap SSMap) []*SentrySpan {
+func classifyOrphanSpans(orphanSpans []*SentrySpan, prevLength int, idMap map[string]string, rootSpanTreeMap map[string]*rootSpanTree) []*SentrySpan {
 	if len(orphanSpans) == 0 || len(orphanSpans) == prevLength {
 		return orphanSpans
 	}
@@ -174,13 +172,13 @@ func classifyOrphanSpans(orphanSpans []*SentrySpan, prevLength int, idMap IDMap,
 	for _, span := range orphanSpans {
 		if rootSpanID, ok := idMap[span.ParentSpanID]; ok {
 			idMap[span.SpanID] = rootSpanID
-			ssMap[rootSpanID].childSpans = append(ssMap[rootSpanID].childSpans, span)
+			rootSpanTreeMap[rootSpanID].childSpans = append(rootSpanTreeMap[rootSpanID].childSpans, span)
 		} else {
 			newOrphanSpans = append(newOrphanSpans, span)
 		}
 	}
 
-	return classifyOrphanSpans(newOrphanSpans, len(orphanSpans), idMap, ssMap)
+	return classifyOrphanSpans(newOrphanSpans, len(orphanSpans), idMap, rootSpanTreeMap)
 }
 
 // TODO: Span.Link
@@ -192,7 +190,7 @@ func convertToSentrySpan(span pdata.Span, resourceTags Tags, library pdata.Instr
 	}
 
 	parentSpanID := ""
-	if psID := span.ParentSpanID(); !AllZero(psID) {
+	if psID := span.ParentSpanID(); !isAllZero(psID) {
 		parentSpanID = psID.String()
 	}
 
@@ -220,8 +218,8 @@ func convertToSentrySpan(span pdata.Span, resourceTags Tags, library pdata.Instr
 		Description:    description,
 		Op:             op,
 		Tags:           tags,
-		StartTimestamp: UnixNanoToTime(span.StartTime()),
-		EndTimestamp:   UnixNanoToTime(span.EndTime()),
+		StartTimestamp: unixNanoToTime(span.StartTime()),
+		EndTimestamp:   unixNanoToTime(span.EndTime()),
 		Status:         status,
 		ResourceTags:   resourceTags,
 	}
@@ -247,10 +245,15 @@ func convertToSentrySpan(span pdata.Span, resourceTags Tags, library pdata.Instr
 
 // To generate span descriptors (op and description) for a particular span we use
 // Semantic Conventions described by the open telemetry specification.
-// https://github.com/open-telemetry/opentelemetry-specification/tree/master/specification/trace/semantic_conventions
 func generateSpanDescriptors(name string, attrs pdata.AttributeMap, spanKind pdata.SpanKind) (op string, description string) {
+	// See https://github.com/open-telemetry/opentelemetry-specification/tree/5b78ee1/specification/trace/semantic_conventions
+	// for more details about the semantic conventions.
 	var opBuilder strings.Builder
 	var dBuilder strings.Builder
+
+	// Generating span descriptors operates under the assumption that only one of the conventions are present.
+	// In the possible case that multiple convention attributes are available, conventions are selected based
+	// on what is most likely and what is most useful (ex. http is prioritized over FaaS)
 
 	// If http.method exists, this is an http request span.
 	if httpMethod, ok := attrs.Get(conventions.AttributeHTTPMethod); ok {

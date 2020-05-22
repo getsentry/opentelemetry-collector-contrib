@@ -34,8 +34,8 @@ var (
 			"status_message": "HTTP OK",
 			"span_kind":      "server",
 		},
-		StartTimestamp: UnixNanoToTime(5),
-		EndTimestamp:   UnixNanoToTime(10),
+		StartTimestamp: unixNanoToTime(5),
+		EndTimestamp:   unixNanoToTime(10),
 		Status:         "ok",
 	}
 
@@ -50,8 +50,8 @@ var (
 			"status_message": "MYSQL OK",
 			"span_kind":      "server",
 		},
-		StartTimestamp: UnixNanoToTime(5),
-		EndTimestamp:   UnixNanoToTime(7),
+		StartTimestamp: unixNanoToTime(5),
+		EndTimestamp:   unixNanoToTime(7),
 		Status:         "ok",
 	}
 
@@ -66,8 +66,8 @@ var (
 			"status_message": "MYSQL OK",
 			"span_kind":      "server",
 		},
-		StartTimestamp: UnixNanoToTime(6),
-		EndTimestamp:   UnixNanoToTime(7),
+		StartTimestamp: unixNanoToTime(6),
+		EndTimestamp:   unixNanoToTime(7),
 		Status:         "ok",
 	}
 
@@ -80,8 +80,8 @@ var (
 		Tags: map[string]string{
 			"span_kind": "server",
 		},
-		StartTimestamp: UnixNanoToTime(7),
-		EndTimestamp:   UnixNanoToTime(10),
+		StartTimestamp: unixNanoToTime(7),
+		EndTimestamp:   unixNanoToTime(10),
 		Status:         "ok",
 	}
 
@@ -92,8 +92,8 @@ var (
 		Description:    "A random span",
 		Op:             "",
 		Tags:           nil,
-		StartTimestamp: UnixNanoToTime(3),
-		EndTimestamp:   UnixNanoToTime(6),
+		StartTimestamp: unixNanoToTime(3),
+		EndTimestamp:   unixNanoToTime(6),
 		Status:         "ok",
 	}
 
@@ -107,8 +107,8 @@ var (
 			"status_message": "HTTP OK",
 			"span_kind":      "client",
 		},
-		StartTimestamp: UnixNanoToTime(0),
-		EndTimestamp:   UnixNanoToTime(5),
+		StartTimestamp: unixNanoToTime(0),
+		EndTimestamp:   unixNanoToTime(5),
 		Status:         "ok",
 	}
 
@@ -121,8 +121,8 @@ var (
 		Tags: map[string]string{
 			"span_kind": "server",
 		},
-		StartTimestamp: UnixNanoToTime(4),
-		EndTimestamp:   UnixNanoToTime(5),
+		StartTimestamp: unixNanoToTime(4),
+		EndTimestamp:   unixNanoToTime(5),
 		Status:         "ok",
 	}
 

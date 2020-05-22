@@ -43,7 +43,7 @@ type SentrySpan struct {
 	Description    string    `json:"description,omitempty"`
 	Op             string    `json:"op,omitempty"`
 	Tags           Tags      `json:"tags,omitempty"`
-	StartTimestamp time.Time `json:"start_timestamp,omitempty"`
+	StartTimestamp time.Time `json:"start_timestamp"`
 	EndTimestamp   time.Time `json:"timestamp"`
 	Status         string    `json:"status"`
 	LibName        string    `json:"-"`
@@ -67,8 +67,8 @@ func (s SentrySpan) MarshalJSON() ([]byte, error) {
 
 // IsRootSpan determines if a span is a root span.
 // If parent span id is empty, then the span is a root span.
-// See: https://github.com/open-telemetry/opentelemetry-proto/blob/master/opentelemetry/proto/trace/v1/trace.proto#L82
-func (s SentrySpan) IsRootSpan() bool {
+func (s *SentrySpan) IsRootSpan() bool {
+	// See: https://github.com/open-telemetry/opentelemetry-proto/blob/28e27742/opentelemetry/proto/trace/v1/trace.proto#L82-L83
 	return s.ParentSpanID == ""
 }
 

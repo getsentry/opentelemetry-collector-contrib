@@ -20,14 +20,14 @@ import (
 	"github.com/open-telemetry/opentelemetry-collector/consumer/pdata"
 )
 
-// UnixNanoToTime converts UNIX Epoch time in nanoseconds
+// unixNanoToTime converts UNIX Epoch time in nanoseconds
 // to a Time struct.
-func UnixNanoToTime(u pdata.TimestampUnixNano) time.Time {
+func unixNanoToTime(u pdata.TimestampUnixNano) time.Time {
 	return time.Unix(0, int64(u)).UTC()
 }
 
 // AllZero checks if a byte slice contains only zeros
-func AllZero(s []byte) bool {
+func isAllZero(s []byte) bool {
 	for _, v := range s {
 		if v != 0 {
 			return false
