@@ -197,8 +197,9 @@ func convertToSentrySpan(span pdata.Span) (sentrySpan *SentrySpan) {
 
 // To generate span descriptors (op and description) for a particular span we use
 // Semantic Conventions described by the open telemetry specification.
-// https://github.com/open-telemetry/opentelemetry-specification/tree/master/specification/trace/semantic_conventions
 func generateSpanDescriptors(name string, attrs pdata.AttributeMap, spanKind pdata.SpanKind) (op string, description string) {
+	// See https://github.com/open-telemetry/opentelemetry-specification/tree/5b78ee1/specification/trace/semantic_conventions
+	// for more details about the semantic conventions.
 	var opBuilder strings.Builder
 	var dBuilder strings.Builder
 
