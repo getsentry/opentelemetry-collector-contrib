@@ -27,7 +27,7 @@ import (
 // Needed to Marshal the transactions into JSON properly.
 type SentryEvent sentry.Event
 
-// Tags describes a Sentry Tag.
+// Tags describe a set of Sentry Tags.
 type Tags map[string]string
 
 // EnvelopeHeader represents the top level header of a Sentry envelope

@@ -240,11 +240,11 @@ func convertToSentrySpan(span pdata.Span, resourceTags Tags, library pdata.Instr
 			sentrySpan.LibName = name
 			sentrySpan.LibVersion = version
 		} else {
-			sentrySpan.LibName = "otel.sentry.exporter"
+			sentrySpan.LibName = "sentry.opentelemetry.collector"
 			sentrySpan.LibVersion = otelSentryExporterVersion
 		}
 	} else {
-		sentrySpan.LibName = "otel.sentry.exporter"
+		sentrySpan.LibName = "sentry.opentelemetry.collector"
 		sentrySpan.LibVersion = otelSentryExporterVersion
 	}
 
