@@ -45,6 +45,6 @@ func TestLoadConfig(t *testing.T) {
 			NameVal: "sentry/2",
 			TypeVal: "sentry",
 		},
-		DSN: "https://publicKey:secretKey@host/path/id",
+		DSN: "https://key@host/path/id",
 	})
 }
