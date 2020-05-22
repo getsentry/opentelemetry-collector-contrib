@@ -17,7 +17,9 @@ package sentryexporter
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -44,24 +46,26 @@ func NewSentryTransport() *SentryTransport {
 }
 
 // Configure configures the SentryTransport based on provided config
-func (t *SentryTransport) Configure(config *Config) error {
+func (t *SentryTransport) Configure(config *Config) {
 	DSN, err := sentry.NewDsn(config.DSN)
 	if err != nil {
-		return err
+		log.Printf("%v\n", err)
+		return
 	}
-
 	t.DSN = DSN
 
 	t.client = &http.Client{
 		Transport: t.transport,
 		Timeout:   t.Timeout,
 	}
-
-	return nil
 }
 
 // SendTransaction send a transaction to a remote server
 func (t *SentryTransport) SendTransaction(transaction *SentryTransaction) error {
+	if t.DSN == nil {
+		return errors.New("Invalid DSN. Not sending Transaction")
+	}
+
 	body, err := json.Marshal(transaction)
 	if err != nil {
 		return err

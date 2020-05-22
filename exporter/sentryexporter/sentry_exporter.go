@@ -55,7 +55,7 @@ var (
 
 // SentryExporter defines the Sentry Exporter.
 type SentryExporter struct {
-	config *Config
+	transport *SentryTransport
 }
 
 // IDMap maps a span_id to a root span span_id.
@@ -138,14 +138,8 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 	transactions := generateTransactions(ssMap, orphanSpans)
 
 	droppedSpans = 0
-	transport := NewSentryTransport()
-	configErr := transport.Configure(s.config)
-	if configErr != nil {
-		return numOfSpans, configErr
-	}
-
 	for _, t := range transactions {
-		err := transport.SendTransaction(t)
+		err := s.transport.SendTransaction(t)
 		if err != nil {
 			droppedSpans += 1 + len(t.Spans)
 		}
@@ -349,8 +343,11 @@ func statusFromSpanStatus(spanStatus pdata.SpanStatus) (status string, message s
 
 // CreateSentryExporter returns a new Sentry Exporter.
 func CreateSentryExporter(config *Config) (component.TraceExporter, error) {
+	transport := NewSentryTransport()
+	transport.Configure(config)
+
 	s := &SentryExporter{
-		config: config,
+		transport: transport,
 	}
 
 	return exporterhelper.NewTraceExporter(config, s.pushTraceData)

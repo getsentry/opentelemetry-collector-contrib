@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/getsentry/sentry-go"
 	"github.com/stretchr/testify/assert"
@@ -91,7 +92,7 @@ func TestTransactionEnvelope(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	} else {
-		assert.Equal(t, DSN.String(), header.DSN)
+		assert.IsType(t, time.Time{}, header.SentAt)
 	}
 
 	// Item Header

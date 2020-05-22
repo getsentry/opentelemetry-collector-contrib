@@ -32,7 +32,7 @@ type Tags map[string]string
 
 // EnvelopeHeader represents the top level header of a Sentry envelope
 type EnvelopeHeader struct {
-	DSN string `json:"dsn"`
+	SentAt time.Time `json:"sent_at"`
 }
 
 // SentrySpan describes a Span following the Sentry format.
@@ -92,7 +92,7 @@ type SentryTransaction struct {
 // Envelope generates a envelope from a Sentry Transaction
 func (t *SentryTransaction) Envelope(DSN *sentry.Dsn) (envelope string, err error) {
 	header := &EnvelopeHeader{
-		DSN: DSN.String(),
+		SentAt: time.Now().UTC(),
 	}
 
 	headerJSON, err := json.Marshal(header)
