@@ -56,17 +56,11 @@ type SentryExporter struct {
 	DSN string
 }
 
-// IDMap maps a span_id to a root span span_id.
-type IDMap map[string]string
-
-// SpanStore stores a root span and it's child spans.
-type SpanStore struct {
+// rootSpanTree stores a root span and it's child spans.
+type rootSpanTree struct {
 	rootSpan   *SentrySpan
 	childSpans []*SentrySpan
 }
-
-// SSMap maps a root span span_id to a SpanStore.
-type SSMap map[string]*SpanStore
 
 // TODO: Add to function
 func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (droppedSpans int, err error) {
@@ -79,9 +73,9 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 	orphanSpans := make([]*SentrySpan, 0, td.SpanCount())
 
 	// Maps all child span ids to their root span.
-	idMap := make(IDMap)
-	// Maps root span id to a root span and it's child span.
-	ssMap := make(SSMap)
+	idMap := make(map[string]string)
+	// Maps root span id to a root span tree.
+	ssMap := make(map[string]*rootSpanTree)
 
 	for i := 0; i < resourceSpans.Len(); i++ {
 		rs := resourceSpans.At(i)
@@ -107,7 +101,7 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 
 				if sentrySpan.IsRootSpan() {
 					// Add root span to span store map
-					ssMap[sentrySpan.SpanID] = &SpanStore{
+					ssMap[sentrySpan.SpanID] = &rootSpanTree{
 						rootSpan:   sentrySpan,
 						childSpans: make([]*SentrySpan, 0),
 					}
@@ -133,7 +127,8 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 	return 0, nil
 }
 
-func classifyOrphanSpans(orphanSpans []*SentrySpan, prevLength int, idMap IDMap, ssMap SSMap) []*SentrySpan {
+// classifyOrphanSpans recursively classifies orphanSpans to a root span tree
+func classifyOrphanSpans(orphanSpans []*SentrySpan, prevLength int, idMap map[string]string, ssMap map[string]*rootSpanTree) []*SentrySpan {
 	if len(orphanSpans) == 0 || len(orphanSpans) == prevLength {
 		return orphanSpans
 	}

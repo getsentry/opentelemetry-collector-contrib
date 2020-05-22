@@ -283,8 +283,8 @@ func TestStatusFromSpanStatus(t *testing.T) {
 type ClassifyOrphanSpanTestCase struct {
 	testName string
 	// input
-	idMap IDMap
-	ssMap SSMap
+	idMap map[string]string
+	ssMap map[string]*rootSpanTree
 	spans []*SentrySpan
 	// output
 	assertion func(t *testing.T, orphanSpans []*SentrySpan)
@@ -397,8 +397,8 @@ func TestClassifyOrphanSpans(t *testing.T) {
 	testCases := []ClassifyOrphanSpanTestCase{
 		{
 			testName: "with no root spans",
-			idMap:    make(IDMap),
-			ssMap:    make(SSMap),
+			idMap:    make(map[string]string),
+			ssMap:    make(map[string]*rootSpanTree),
 			spans:    []*SentrySpan{childSpan1, childSpan2},
 			assertion: func(t *testing.T, orphanSpans []*SentrySpan) {
 				assert.Len(t, orphanSpans, 2)
@@ -406,14 +406,14 @@ func TestClassifyOrphanSpans(t *testing.T) {
 		},
 		{
 			testName: "with no remaining orphans",
-			idMap: func() IDMap {
-				idMap := make(IDMap)
+			idMap: func() map[string]string {
+				idMap := make(map[string]string)
 				idMap[rootSpan1.SpanID] = rootSpan1.SpanID
 				return idMap
 			}(),
-			ssMap: func() SSMap {
-				ssMap := make(SSMap)
-				ssMap[rootSpan1.SpanID] = &SpanStore{
+			ssMap: func() map[string]*rootSpanTree {
+				ssMap := make(map[string]*rootSpanTree)
+				ssMap[rootSpan1.SpanID] = &rootSpanTree{
 					rootSpan:   rootSpan1,
 					childSpans: make([]*SentrySpan, 0),
 				}
@@ -426,14 +426,14 @@ func TestClassifyOrphanSpans(t *testing.T) {
 		},
 		{
 			testName: "with some remaining orphans",
-			idMap: func() IDMap {
-				idMap := make(IDMap)
+			idMap: func() map[string]string {
+				idMap := make(map[string]string)
 				idMap[rootSpan1.SpanID] = rootSpan1.SpanID
 				return idMap
 			}(),
-			ssMap: func() SSMap {
-				ssMap := make(SSMap)
-				ssMap[rootSpan1.SpanID] = &SpanStore{
+			ssMap: func() map[string]*rootSpanTree {
+				ssMap := make(map[string]*rootSpanTree)
+				ssMap[rootSpan1.SpanID] = &rootSpanTree{
 					rootSpan:   rootSpan1,
 					childSpans: make([]*SentrySpan, 0),
 				}
@@ -447,19 +447,19 @@ func TestClassifyOrphanSpans(t *testing.T) {
 		},
 		{
 			testName: "with some remaining orphans",
-			idMap: func() IDMap {
-				idMap := make(IDMap)
+			idMap: func() map[string]string {
+				idMap := make(map[string]string)
 				idMap[rootSpan1.SpanID] = rootSpan1.SpanID
 				idMap[rootSpan2.SpanID] = rootSpan2.SpanID
 				return idMap
 			}(),
-			ssMap: func() SSMap {
-				ssMap := make(SSMap)
-				ssMap[rootSpan1.SpanID] = &SpanStore{
+			ssMap: func() map[string]*rootSpanTree {
+				ssMap := make(map[string]*rootSpanTree)
+				ssMap[rootSpan1.SpanID] = &rootSpanTree{
 					rootSpan:   rootSpan1,
 					childSpans: make([]*SentrySpan, 0),
 				}
-				ssMap[rootSpan2.SpanID] = &SpanStore{
+				ssMap[rootSpan2.SpanID] = &rootSpanTree{
 					rootSpan:   rootSpan2,
 					childSpans: make([]*SentrySpan, 0),
 				}
