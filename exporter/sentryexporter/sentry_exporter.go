@@ -305,3 +305,46 @@ func CreateSentryExporter(config *Config) (component.TraceExporter, error) {
 
 	return exp, err
 }
+
+// TODO: Span.Link
+// TODO; Span.Event -> create breadcrumbs
+// TODO: Span.TraceState()
+func spanToSentrySpan(span pdata.Span) (sentrySpan *SentrySpan) {
+	if span.IsNil() {
+		return nil
+	}
+
+	parentSpanID := ""
+	if psID := span.ParentSpanID(); !isAllZero(psID) {
+		parentSpanID = psID.String()
+	}
+
+	attributes := span.Attributes()
+	name := span.Name()
+	spanKind := span.Kind()
+
+	op, description := generateSpanDescriptors(name, attributes, spanKind)
+	tags := generateTagsFromAttributes(attributes)
+
+	status, message := statusFromSpanStatus(span.Status())
+
+	if message != "" {
+		tags["status_message"] = message
+	}
+
+	if spanKind != pdata.SpanKindUNSPECIFIED {
+		tags["span_kind"] = spanKind.String()
+	}
+
+	return &SentrySpan{
+		TraceID:        span.TraceID().String(),
+		SpanID:         span.SpanID().String(),
+		ParentSpanID:   parentSpanID,
+		Description:    description,
+		Op:             op,
+		Tags:           tags,
+		StartTimestamp: unixNanoToTime(span.StartTime()),
+		EndTimestamp:   unixNanoToTime(span.EndTime()),
+		Status:         status,
+	}
+}
