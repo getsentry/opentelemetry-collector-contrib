@@ -21,12 +21,56 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/getsentry/sentry-go"
 )
 
 const defaultTimeout = time.Second * 30
+
+// envelopeHeader represents the top level header of a Sentry envelope
+type envelopeHeader struct {
+	SentAt time.Time `json:"sent_at"`
+}
+
+func transactionToEnvelope(t *SentryTransaction) (envelope string, err error) {
+	header := &envelopeHeader{
+		SentAt: time.Now().UTC(),
+	}
+
+	headerJSON, err := json.Marshal(header)
+	if err != nil {
+		return "", err
+	}
+
+	var env strings.Builder
+
+	// Header
+	_, err = fmt.Fprintf(&env, "%s%s", headerJSON, "\n")
+	if err != nil {
+		return "", err
+	}
+
+	// Item Header
+	_, err = fmt.Fprintf(&env, "%s%s", `{"type":"transaction"}`, "\n")
+	if err != nil {
+		return "", err
+	}
+
+	transactionJSON, err := json.Marshal(t)
+	if err != nil {
+		return "", err
+	}
+
+	// Item Payload
+	_, err = fmt.Fprintf(&env, "%s%s", transactionJSON, "\n")
+	if err != nil {
+		return "", err
+	}
+
+	return env.String(), nil
+}
 
 // A SentryTransport is used to deliver events to a remote server
 type SentryTransport struct {

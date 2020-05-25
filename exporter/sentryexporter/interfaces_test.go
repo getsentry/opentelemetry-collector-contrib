@@ -21,12 +21,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"path/filepath"
-	"strings"
 	"testing"
-	"time"
-
-	"github.com/getsentry/sentry-go"
-	"github.com/stretchr/testify/assert"
 )
 
 var update = flag.Bool("update", false, "update .golden files")
@@ -72,33 +67,4 @@ func TestMarshalStruct(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestTransactionEnvelope(t *testing.T) {
-	DSN, err := sentry.NewDsn("https://key@host/path/42")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	env, err := transaction1.Envelope(DSN)
-
-	envParts := strings.Split(env, "\n")
-	assert.Len(t, envParts, 4)
-	assert.Empty(t, envParts[3])
-
-	// Header
-	header := &EnvelopeHeader{}
-	json.Unmarshal([]byte(envParts[0]), header)
-	if err != nil {
-		t.Error(err)
-	} else {
-		assert.IsType(t, time.Time{}, header.SentAt)
-	}
-
-	// Item Header
-	assert.Equal(t, `{"type":"transaction"}`, envParts[1])
-
-	// Item Payload
-	payload := envParts[2]
-	assert.NotEmpty(t, payload)
 }

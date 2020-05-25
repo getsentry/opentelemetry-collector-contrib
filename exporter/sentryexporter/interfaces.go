@@ -16,8 +16,6 @@ package sentryexporter
 
 import (
 	"encoding/json"
-	"fmt"
-	"strings"
 	"time"
 
 	"github.com/getsentry/sentry-go"
@@ -29,11 +27,6 @@ type SentryEvent sentry.Event
 
 // Tags describe a set of Sentry Tags.
 type Tags map[string]string
-
-// EnvelopeHeader represents the top level header of a Sentry envelope
-type EnvelopeHeader struct {
-	SentAt time.Time `json:"sent_at"`
-}
 
 // SentrySpan describes a Span following the Sentry format.
 type SentrySpan struct {
@@ -87,45 +80,6 @@ type SentryTransaction struct {
 	StartTimestamp time.Time     `json:"start_timestamp,omitempty"`
 	TraceContext   TraceContext  `json:"trace,omitempty"`
 	Spans          []*SentrySpan `json:"spans,omitempty"`
-}
-
-// Envelope generates a envelope from a Sentry Transaction
-func (t *SentryTransaction) Envelope(DSN *sentry.Dsn) (envelope string, err error) {
-	header := &EnvelopeHeader{
-		SentAt: time.Now().UTC(),
-	}
-
-	headerJSON, err := json.Marshal(header)
-	if err != nil {
-		return "", err
-	}
-
-	var env strings.Builder
-
-	// Header
-	_, err = fmt.Fprintf(&env, "%s%s", headerJSON, "\n")
-	if err != nil {
-		return "", err
-	}
-
-	// Item Header
-	_, err = fmt.Fprintf(&env, "%s%s", `{"type":"transaction"}`, "\n")
-	if err != nil {
-		return "", err
-	}
-
-	transactionJSON, err := json.Marshal(t)
-	if err != nil {
-		return "", err
-	}
-
-	// Item Payload
-	_, err = fmt.Fprintf(&env, "%s%s", transactionJSON, "\n")
-	if err != nil {
-		return "", err
-	}
-
-	return env.String(), nil
 }
 
 // MarshalJSON converts the SentryTransaction struct to JSON.

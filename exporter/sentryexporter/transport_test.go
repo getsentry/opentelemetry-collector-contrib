@@ -13,3 +13,36 @@
 // limitations under the License.
 
 package sentryexporter
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+)
+
+func TestTransactionEnvelope(t *testing.T) {
+	env, err := transactionToEnvelope(transaction1)
+
+	envParts := strings.Split(env, "\n")
+	assert.Len(t, envParts, 4)
+	assert.Empty(t, envParts[3])
+
+	// Header
+	header := &envelopeHeader{}
+	json.Unmarshal([]byte(envParts[0]), header)
+	if err != nil {
+		t.Error(err)
+	} else {
+		assert.IsType(t, time.Time{}, header.SentAt)
+	}
+
+	// Item Header
+	assert.Equal(t, `{"type":"transaction"}`, envParts[1])
+
+	// Item Payload
+	payload := envParts[2]
+	assert.NotEmpty(t, payload)
+}
