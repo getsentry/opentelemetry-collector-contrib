@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/getsentry/sentry-go"
 	"github.com/open-telemetry/opentelemetry-collector/component"
 	"github.com/open-telemetry/opentelemetry-collector/config/configerror"
 	"github.com/open-telemetry/opentelemetry-collector/config/configmodels"
@@ -52,6 +53,10 @@ func (f *Factory) CreateTraceExporter(ctx context.Context, params component.Expo
 	sentryConfig, ok := config.(*Config)
 	if !ok {
 		return nil, fmt.Errorf("Unexpected config type: %T", config)
+	}
+
+	if err := sentry.Init(sentry.ClientOptions{Dsn: sentryConfig.DSN}); err != nil {
+		fmt.Printf("Sentry initialization failed: %v\n", err)
 	}
 
 	// Create exporter based on sentry config.

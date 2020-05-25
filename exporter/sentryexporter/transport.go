@@ -21,12 +21,16 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/getsentry/sentry-go"
 )
 
+const defaultBufferSize = 30
+const defaultRetryAfter = time.Second * 60
 const defaultTimeout = time.Second * 30
 
 // envelopeHeader represents the top level header of a Sentry envelope
@@ -78,6 +82,15 @@ type SentryTransport struct {
 	client    *http.Client
 	transport http.RoundTripper
 
+	buffer        chan *http.Request
+	disabledUntil time.Time
+	mu            sync.RWMutex
+
+	wg    sync.WaitGroup
+	start sync.Once
+
+	// Size of the transport buffer. Defaults to 30.
+	BufferSize int
 	// HTTP Client request timeout. Defaults to 30 seconds.
 	Timeout time.Duration
 }
@@ -85,7 +98,8 @@ type SentryTransport struct {
 // NewSentryTransport returns a new pre-configured instance of SentryTransport
 func NewSentryTransport() *SentryTransport {
 	return &SentryTransport{
-		Timeout: defaultTimeout,
+		BufferSize: defaultBufferSize,
+		Timeout:    defaultTimeout,
 	}
 }
 
@@ -96,18 +110,31 @@ func (t *SentryTransport) Configure(config *Config) {
 		log.Printf("%v\n", err)
 		return
 	}
+
 	t.DSN = DSN
+	t.buffer = make(chan *http.Request, t.BufferSize)
 
 	t.client = &http.Client{
 		Transport: t.transport,
 		Timeout:   t.Timeout,
 	}
+
+	t.start.Do(func() {
+		go t.worker()
+	})
 }
 
 // SendTransaction send a transaction to a remote server
 func (t *SentryTransport) SendTransaction(transaction *SentryTransaction) error {
 	if t.DSN == nil {
 		return errors.New("Invalid DSN. Not sending Transaction")
+	}
+
+	t.mu.RLock()
+	disabled := time.Now().Before(t.disabledUntil)
+	t.mu.RUnlock()
+	if disabled {
+		return errors.New("Transport is disabled, cannot send transactions")
 	}
 
 	body, err := json.Marshal(transaction)
@@ -125,10 +152,73 @@ func (t *SentryTransport) SendTransaction(transaction *SentryTransaction) error 
 		request.Header.Set(headerKey, headerValue)
 	}
 
-	_, err = t.client.Do(request)
-	if err != nil {
-		return fmt.Errorf("There was an issue with sending an event: %v", err)
+	t.wg.Add(1)
+
+	select {
+	case t.buffer <- request:
+		return nil
+	default:
+		t.wg.Done()
+		return errors.New("Event dropped due to transport buffer being full")
+	}
+}
+
+func (t *SentryTransport) worker() {
+	for request := range t.buffer {
+		t.mu.RLock()
+		disabled := time.Now().Before(t.disabledUntil)
+		t.mu.RUnlock()
+		if disabled {
+			t.wg.Done()
+			continue
+		}
+
+		response, _ := t.client.Do(request)
+
+		if response != nil && response.StatusCode == http.StatusTooManyRequests {
+			deadline := time.Now().Add(retryAfter(time.Now(), response))
+			t.mu.Lock()
+			t.disabledUntil = deadline
+			t.mu.Unlock()
+		}
+
+		t.wg.Done()
+	}
+}
+
+// Flush waits until any buffered events are sent to the Sentry server, blocking
+// for at most the given timeout. It returns false if the timeout was reached.
+func (t *SentryTransport) Flush(timeout time.Duration) bool {
+	toolate := time.After(timeout)
+	c := make(chan struct{})
+
+	go func() {
+		t.wg.Wait()
+		close(c)
+	}()
+
+	select {
+	case <-c:
+		return true
+	case <-toolate:
+		return false
+	}
+}
+
+func retryAfter(now time.Time, r *http.Response) time.Duration {
+	retryAfterHeader := r.Header["Retry-After"]
+
+	if retryAfterHeader == nil {
+		return defaultRetryAfter
 	}
 
-	return nil
+	if date, err := time.Parse(time.RFC1123, retryAfterHeader[0]); err == nil {
+		return date.Sub(now)
+	}
+
+	if seconds, err := strconv.Atoi(retryAfterHeader[0]); err == nil {
+		return time.Second * time.Duration(seconds)
+	}
+
+	return defaultRetryAfter
 }
