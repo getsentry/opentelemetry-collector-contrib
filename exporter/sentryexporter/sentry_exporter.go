@@ -17,8 +17,10 @@ package sentryexporter
 import (
 	"context"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/open-telemetry/opentelemetry-collector/component"
 	"github.com/open-telemetry/opentelemetry-collector/consumer/pdata"
@@ -345,5 +347,17 @@ func CreateSentryExporter(config *Config) (component.TraceExporter, error) {
 		transport: transport,
 	}
 
-	return exporterhelper.NewTraceExporter(config, s.pushTraceData)
+	return exporterhelper.NewTraceExporter(
+		config,
+		s.pushTraceData,
+		exporterhelper.WithShutdown(func(context.Context) error {
+			allEventsFlushed := transport.Flush(time.Second)
+
+			if !allEventsFlushed {
+				log.Print("Flushing event buffer reached timeout")
+			}
+
+			return nil
+		}),
+	)
 }
