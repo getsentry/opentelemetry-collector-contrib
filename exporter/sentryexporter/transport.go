@@ -21,8 +21,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -38,42 +38,42 @@ type envelopeHeader struct {
 	SentAt time.Time `json:"sent_at"`
 }
 
-func transactionToEnvelope(t *SentryTransaction) (envelope string, err error) {
+func transactionToEnvelope(t *SentryTransaction) (envelope *bytes.Buffer, err error) {
 	header := &envelopeHeader{
 		SentAt: time.Now().UTC(),
 	}
 
 	headerJSON, err := json.Marshal(header)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	var env strings.Builder
+	var env bytes.Buffer
 
 	// Header
 	_, err = fmt.Fprintf(&env, "%s%s", headerJSON, "\n")
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	// Item Header
 	_, err = fmt.Fprintf(&env, "%s%s", `{"type":"transaction"}`, "\n")
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	transactionJSON, err := json.Marshal(t)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	// Item Payload
 	_, err = fmt.Fprintf(&env, "%s%s", transactionJSON, "\n")
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	return env.String(), nil
+	return &env, nil
 }
 
 // A SentryTransport is used to deliver events to a remote server
@@ -137,15 +137,15 @@ func (t *SentryTransport) SendTransaction(transaction *SentryTransaction) error 
 		return errors.New("Transport is disabled, cannot send transactions")
 	}
 
-	body, err := json.Marshal(transaction)
+	envelope, err := transactionToEnvelope(transaction)
 	if err != nil {
 		return err
 	}
 
 	request, _ := http.NewRequest(
 		http.MethodPost,
-		t.DSN.StoreAPIURL().String(),
-		bytes.NewBuffer(body),
+		envelopeAPIURL(t.DSN),
+		envelope,
 	)
 
 	for headerKey, headerValue := range t.DSN.RequestHeaders() {
@@ -221,4 +221,11 @@ func retryAfter(now time.Time, r *http.Response) time.Duration {
 	}
 
 	return defaultRetryAfter
+}
+
+func envelopeAPIURL(DSN *sentry.Dsn) string {
+	url := DSN.StoreAPIURL()
+	r := regexp.MustCompile("(/store/)")
+	url.Path = r.ReplaceAllString(url.Path, "/envelope/")
+	return url.String()
 }
