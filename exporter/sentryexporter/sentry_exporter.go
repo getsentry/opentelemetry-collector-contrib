@@ -101,6 +101,18 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 			}
 
 			library := ils.InstrumentationLibrary()
+			LibName := "sentry.opentelemetry.collector"
+			LibVersion := otelSentryExporterVersion
+
+			if !library.IsNil() {
+				name := library.Name()
+				version := library.Version()
+
+				if name != "" && version != "" {
+					LibName = name
+					LibVersion = version
+				}
+			}
 
 			spans := ils.Spans()
 			for k := 0; k < spans.Len(); k++ {
@@ -109,7 +121,7 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 					continue
 				}
 
-				sentrySpan := convertToSentrySpan(otelSpan, resourceTags, library)
+				sentrySpan := convertToSentrySpan(otelSpan, resourceTags, LibName, LibVersion)
 
 				if sentrySpan.IsRootSpan() {
 					// Add root span to span store map
@@ -184,7 +196,7 @@ func classifyOrphanSpans(orphanSpans []*SentrySpan, prevLength int, idMap map[st
 // TODO: Span.Link
 // TODO; Span.Event -> create breadcrumbs
 // TODO: Span.TraceState()
-func convertToSentrySpan(span pdata.Span, resourceTags Tags, library pdata.InstrumentationLibrary) (sentrySpan *SentrySpan) {
+func convertToSentrySpan(span pdata.Span, resourceTags Tags, LibName string, LibVersion string) (sentrySpan *SentrySpan) {
 	if span.IsNil() {
 		return nil
 	}
@@ -222,22 +234,8 @@ func convertToSentrySpan(span pdata.Span, resourceTags Tags, library pdata.Instr
 		EndTimestamp:   unixNanoToTime(span.EndTime()),
 		Status:         status,
 		ResourceTags:   resourceTags,
-	}
-
-	if !library.IsNil() {
-		name := library.Name()
-		version := library.Version()
-
-		if name != "" && version != "" {
-			sentrySpan.LibName = name
-			sentrySpan.LibVersion = version
-		} else {
-			sentrySpan.LibName = "sentry.opentelemetry.collector"
-			sentrySpan.LibVersion = otelSentryExporterVersion
-		}
-	} else {
-		sentrySpan.LibName = "sentry.opentelemetry.collector"
-		sentrySpan.LibVersion = otelSentryExporterVersion
+		LibName:        LibName,
+		LibVersion:     LibVersion,
 	}
 
 	return sentrySpan

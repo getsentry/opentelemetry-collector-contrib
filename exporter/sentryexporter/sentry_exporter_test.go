@@ -40,7 +40,7 @@ func TestSpanToSentrySpan(t *testing.T) {
 	t.Run("with nil span", func(t *testing.T) {
 		testSpan := pdata.NewSpan()
 
-		sentrySpan := convertToSentrySpan(testSpan, Tags{}, pdata.NewInstrumentationLibrary())
+		sentrySpan := convertToSentrySpan(testSpan, Tags{}, "", "")
 		assert.Nil(t, sentrySpan)
 	})
 
@@ -51,7 +51,7 @@ func TestSpanToSentrySpan(t *testing.T) {
 		var parentSpanID []byte
 		testSpan.SetParentSpanID(parentSpanID)
 
-		sentrySpan := convertToSentrySpan(testSpan, Tags{}, pdata.NewInstrumentationLibrary())
+		sentrySpan := convertToSentrySpan(testSpan, Tags{}, "", "")
 		assert.NotNil(t, sentrySpan)
 		assert.True(t, sentrySpan.IsRootSpan())
 	})
@@ -63,7 +63,7 @@ func TestSpanToSentrySpan(t *testing.T) {
 		parentSpanID := []byte{0, 0, 0, 0, 0, 0, 0, 0}
 		testSpan.SetParentSpanID(parentSpanID)
 
-		sentrySpan := convertToSentrySpan(testSpan, Tags{}, pdata.NewInstrumentationLibrary())
+		sentrySpan := convertToSentrySpan(testSpan, Tags{}, "", "")
 		assert.NotNil(t, sentrySpan)
 		assert.True(t, sentrySpan.IsRootSpan())
 	})
@@ -83,10 +83,6 @@ func TestSpanToSentrySpan(t *testing.T) {
 		resourceTags := Tags{
 			"service_name": "basic-service",
 		}
-		lib := pdata.NewInstrumentationLibrary()
-		lib.InitEmpty()
-		lib.SetName("otel-python")
-		lib.SetVersion("0.0.1")
 
 		testSpan.Attributes().InsertString("key", "value")
 
@@ -102,7 +98,7 @@ func TestSpanToSentrySpan(t *testing.T) {
 		testSpan.Status().SetMessage(statusMessage)
 		testSpan.Status().SetCode(pdata.StatusCode(otlptrace.Status_Ok))
 
-		actual := convertToSentrySpan(testSpan, resourceTags, lib)
+		actual := convertToSentrySpan(testSpan, resourceTags, "otel-python", "0.0.1")
 
 		assert.NotNil(t, actual)
 		assert.False(t, actual.IsRootSpan())
