@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/getsentry/sentry-go"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -58,9 +59,9 @@ func TestTransactionEnvelope(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	env := string(b)
+	envString := string(b.Bytes())
 
-	envParts := strings.Split(env, "\n")
+	envParts := strings.Split(envString, "\n")
 	assert.Len(t, envParts, 4)
 	assert.Empty(t, envParts[3])
 
@@ -184,4 +185,9 @@ func TestRetryAfter(t *testing.T) {
 			assert.Equal(t, retryAfter(test.now, test.response), test.duration)
 		})
 	}
+}
+
+func TestEnvelopeAPIURL(t *testing.T) {
+	DSN, _ := sentry.NewDsn("https://key@host/path/42")
+	assert.Equal(t, "https://host/path/api/42/envelope/", envelopeAPIURL(DSN))
 }

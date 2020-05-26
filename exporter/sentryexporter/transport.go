@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
 	"strconv"
 	"sync"
 	"time"
@@ -32,14 +33,14 @@ const defaultBufferSize = 30
 const defaultRetryAfter = time.Second * 60
 const defaultTimeout = time.Second * 30
 
-func transactionToEnvelope(t *SentryTransaction) (envelope []byte, err error) {
+func transactionToEnvelope(t *SentryTransaction) (envelope *bytes.Buffer, err error) {
 	var b bytes.Buffer
 	enc := json.NewEncoder(&b)
 
 	fmt.Fprintf(&b, `{"sent_at":"%s"}`, time.Now().UTC().Format(time.RFC3339Nano))
 	fmt.Fprint(&b, "\n", `{"type":"transaction"}`, "\n")
 	err = enc.Encode(t)
-	return b.Bytes(), err
+	return &b, err
 }
 
 // A SentryTransport is used to deliver events to a remote server
@@ -103,15 +104,15 @@ func (t *SentryTransport) SendTransaction(transaction *SentryTransaction) error 
 		return errors.New("Transport is disabled, cannot send transactions")
 	}
 
-	body, err := json.Marshal(transaction)
+	envelope, err := transactionToEnvelope(transaction)
 	if err != nil {
 		return err
 	}
 
 	request, _ := http.NewRequest(
 		http.MethodPost,
-		t.DSN.StoreAPIURL().String(),
-		bytes.NewBuffer(body),
+		envelopeAPIURL(t.DSN),
+		envelope,
 	)
 
 	for headerKey, headerValue := range t.DSN.RequestHeaders() {
@@ -187,4 +188,11 @@ func retryAfter(now time.Time, r *http.Response) time.Duration {
 	}
 
 	return defaultRetryAfter
+}
+
+func envelopeAPIURL(DSN *sentry.Dsn) string {
+	url := DSN.StoreAPIURL()
+	r := regexp.MustCompile("(/store/)")
+	url.Path = r.ReplaceAllString(url.Path, "/envelope/")
+	return url.String()
 }
