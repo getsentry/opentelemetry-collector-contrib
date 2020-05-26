@@ -58,12 +58,6 @@ type SentryExporter struct {
 	transport *SentryTransport
 }
 
-// SpanStore stores a root span and it's child spans.
-type SpanStore struct {
-	rootSpan   *SentrySpan
-	childSpans []*SentrySpan
-}
-
 // rootSpanTree stores a root span and it's child spans.
 type rootSpanTree struct {
 	rootSpan   *SentrySpan
@@ -161,8 +155,8 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 func generateTransactions(rootSpanTreeMap map[string]*rootSpanTree, orphanSpans []*SentrySpan) []*SentryTransaction {
 	transactions := make([]*SentryTransaction, 0, len(rootSpanTreeMap)+len(orphanSpans))
 
-	for _, spanStore := range rootSpanTreeMap {
-		transaction := transactionFromSpans(spanStore.rootSpan, spanStore.childSpans)
+	for _, rtree := range rootSpanTreeMap {
+		transaction := transactionFromSpans(rtree.rootSpan, rtree.childSpans)
 		transactions = append(transactions, transaction)
 	}
 
