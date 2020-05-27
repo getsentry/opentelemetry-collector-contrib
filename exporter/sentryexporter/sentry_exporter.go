@@ -56,26 +56,101 @@ type SentryExporter struct {
 	DSN string
 }
 
+// rootSpanTree stores a root span and it's child spans.
+type rootSpanTree struct {
+	rootSpan   *SentrySpan
+	childSpans []*SentrySpan
+}
+
 // TODO: Add to function
 func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (droppedSpans int, err error) {
+	// For a ResourceSpan, InstrumentationLibrarySpan and Span struct if IsNil() is "true", all other methods will cause a runtime error.
+	resourceSpans := td.ResourceSpans()
+	if resourceSpans.Len() == 0 {
+		return 0, nil
+	}
+
+	orphanSpans := make([]*SentrySpan, 0, td.SpanCount())
+
+	// Maps all child span ids to their root span.
+	idMap := make(map[string]string)
+	// Maps root span id to a root span tree.
+	rootSpanTreeMap := make(map[string]*rootSpanTree)
+
+	for i := 0; i < resourceSpans.Len(); i++ {
+		rs := resourceSpans.At(i)
+		if rs.IsNil() {
+			continue
+		}
+
+		ilss := rs.InstrumentationLibrarySpans()
+		for j := 0; j < ilss.Len(); j++ {
+			ils := ilss.At(j)
+			if ils.IsNil() {
+				continue
+			}
+
+			spans := ils.Spans()
+			for k := 0; k < spans.Len(); k++ {
+				otelSpan := spans.At(k)
+				if otelSpan.IsNil() {
+					continue
+				}
+
+				sentrySpan := convertToSentrySpan(otelSpan)
+
+				if sentrySpan.IsRootSpan() {
+					// Add root span to span store map
+					rootSpanTreeMap[sentrySpan.SpanID] = &rootSpanTree{
+						rootSpan:   sentrySpan,
+						childSpans: make([]*SentrySpan, 0),
+					}
+
+					idMap[sentrySpan.SpanID] = sentrySpan.SpanID
+				} else {
+					if rootSpanID, ok := idMap[sentrySpan.ParentSpanID]; ok {
+						idMap[sentrySpan.SpanID] = rootSpanID
+						rootSpanTreeMap[rootSpanID].childSpans = append(rootSpanTreeMap[rootSpanID].childSpans, sentrySpan)
+					} else {
+						orphanSpans = append(orphanSpans, sentrySpan)
+					}
+				}
+			}
+		}
+	}
+
+	orphanSpans = classifyOrphanSpans(orphanSpans, len(orphanSpans)+1, idMap, rootSpanTreeMap)
+
+	// TODO: Use orphanSpans and rootSpanTreeMap to generate transactions
+
+	// TODO: Correctly return dropped spans
 	return 0, nil
 }
 
-// CreateSentryExporter returns a new Sentry Exporter.
-func CreateSentryExporter(config *Config) (component.TraceExporter, error) {
-	s := &SentryExporter{
-		DSN: config.DSN,
+// classifyOrphanSpans recursively classifies orphanSpans to a root span tree
+func classifyOrphanSpans(orphanSpans []*SentrySpan, prevLength int, idMap map[string]string, rootSpanTreeMap map[string]*rootSpanTree) []*SentrySpan {
+	if len(orphanSpans) == 0 || len(orphanSpans) == prevLength {
+		return orphanSpans
 	}
 
-	exp, err := exporterhelper.NewTraceExporter(config, s.pushTraceData)
+	newOrphanSpans := make([]*SentrySpan, 0, prevLength)
 
-	return exp, err
+	for _, span := range orphanSpans {
+		if rootSpanID, ok := idMap[span.ParentSpanID]; ok {
+			idMap[span.SpanID] = rootSpanID
+			rootSpanTreeMap[rootSpanID].childSpans = append(rootSpanTreeMap[rootSpanID].childSpans, span)
+		} else {
+			newOrphanSpans = append(newOrphanSpans, span)
+		}
+	}
+
+	return classifyOrphanSpans(newOrphanSpans, len(orphanSpans), idMap, rootSpanTreeMap)
 }
 
 // TODO: Span.Link
 // TODO; Span.Event -> create breadcrumbs
 // TODO: Span.TraceState()
-func spanToSentrySpan(span pdata.Span) (sentrySpan *SentrySpan) {
+func convertToSentrySpan(span pdata.Span) (sentrySpan *SentrySpan) {
 	if span.IsNil() {
 		return nil
 	}
@@ -117,8 +192,9 @@ func spanToSentrySpan(span pdata.Span) (sentrySpan *SentrySpan) {
 
 // To generate span descriptors (op and description) for a particular span we use
 // Semantic Conventions described by the open telemetry specification.
-// https://github.com/open-telemetry/opentelemetry-specification/tree/master/specification/trace/semantic_conventions
 func generateSpanDescriptors(name string, attrs pdata.AttributeMap, spanKind pdata.SpanKind) (op string, description string) {
+	// See https://github.com/open-telemetry/opentelemetry-specification/tree/5b78ee1/specification/trace/semantic_conventions
+	// for more details about the semantic conventions.
 	var opBuilder strings.Builder
 	var dBuilder strings.Builder
 
@@ -213,4 +289,58 @@ func statusFromSpanStatus(spanStatus pdata.SpanStatus) (status string, message s
 	}
 
 	return canonicalCodes[code], spanStatus.Message()
+}
+
+// CreateSentryExporter returns a new Sentry Exporter.
+func CreateSentryExporter(config *Config) (component.TraceExporter, error) {
+	s := &SentryExporter{
+		DSN: config.DSN,
+	}
+
+	exp, err := exporterhelper.NewTraceExporter(config, s.pushTraceData)
+
+	return exp, err
+}
+
+// TODO: Span.Link
+// TODO; Span.Event -> create breadcrumbs
+// TODO: Span.TraceState()
+func spanToSentrySpan(span pdata.Span) (sentrySpan *SentrySpan) {
+	if span.IsNil() {
+		return nil
+	}
+
+	parentSpanID := ""
+	if psID := span.ParentSpanID(); !isAllZero(psID) {
+		parentSpanID = psID.String()
+	}
+
+	attributes := span.Attributes()
+	name := span.Name()
+	spanKind := span.Kind()
+
+	op, description := generateSpanDescriptors(name, attributes, spanKind)
+	tags := generateTagsFromAttributes(attributes)
+
+	status, message := statusFromSpanStatus(span.Status())
+
+	if message != "" {
+		tags["status_message"] = message
+	}
+
+	if spanKind != pdata.SpanKindUNSPECIFIED {
+		tags["span_kind"] = spanKind.String()
+	}
+
+	return &SentrySpan{
+		TraceID:        span.TraceID().String(),
+		SpanID:         span.SpanID().String(),
+		ParentSpanID:   parentSpanID,
+		Description:    description,
+		Op:             op,
+		Tags:           tags,
+		StartTimestamp: unixNanoToTime(span.StartTime()),
+		EndTimestamp:   unixNanoToTime(span.EndTime()),
+		Status:         status,
+	}
 }
