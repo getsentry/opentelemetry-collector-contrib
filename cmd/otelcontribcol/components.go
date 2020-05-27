@@ -28,6 +28,7 @@ import (
 	"github.com/open-telemetry/opentelemetry-collector-contrib/exporter/kinesisexporter"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/exporter/lightstepexporter"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/exporter/sapmexporter"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/exporter/sentryexporter"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/exporter/signalfxexporter"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/exporter/stackdriverexporter"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/extension/observer/k8sobserver"
@@ -97,6 +98,7 @@ func components() (config.Factories, error) {
 		&honeycombexporter.Factory{},
 		&jaegerthrifthttpexporter.Factory{},
 		&lightstepexporter.Factory{},
+		&sentryexporter.Factory{},
 	}
 	for _, exp := range factories.Exporters {
 		exporters = append(exporters, exp)
