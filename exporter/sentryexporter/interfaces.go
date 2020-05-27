@@ -23,7 +23,7 @@ import (
 
 // SentryEvent aliases the sentry Event type.
 // Needed to Marshal the transactions into JSON properly.
-type SentryEvent sentry.Event
+type sentryEvent sentry.Event
 
 // Tags describe a set of Sentry Tags.
 type Tags map[string]string
@@ -45,7 +45,7 @@ type SentrySpan struct {
 }
 
 // MarshalJSON converts the SentrySpan struct to JSON.
-func (s SentrySpan) MarshalJSON() ([]byte, error) {
+func (s *SentrySpan) MarshalJSON() ([]byte, error) {
 	type alias SentrySpan
 	return json.Marshal(&struct {
 		StartTimestamp time.Time `json:"start_timestamp,omitempty"`
@@ -54,7 +54,7 @@ func (s SentrySpan) MarshalJSON() ([]byte, error) {
 	}{
 		StartTimestamp: s.StartTimestamp.UTC(),
 		EndTimestamp:   s.EndTimestamp.UTC(),
-		alias:          (*alias)(&s),
+		alias:          (*alias)(s),
 	})
 }
 
@@ -76,17 +76,17 @@ type TraceContext struct {
 // SentryTransaction describes a Sentry Transaction.
 // TODO: generate extra fields when creating envelope Type, User, Platform, SDK
 type SentryTransaction struct {
-	*SentryEvent
-	StartTimestamp time.Time     `json:"start_timestamp,omitempty"`
+	*sentryEvent
+	StartTimestamp time.Time     `json:"start_timestamp"`
 	TraceContext   TraceContext  `json:"trace,omitempty"`
 	Spans          []*SentrySpan `json:"spans,omitempty"`
 }
 
 // MarshalJSON converts the SentryTransaction struct to JSON.
-func (t SentryTransaction) MarshalJSON() ([]byte, error) {
+func (t *SentryTransaction) MarshalJSON() ([]byte, error) {
 	type alias SentryTransaction
 	return json.Marshal(&struct {
-		StartTimestamp time.Time `json:"start_timestamp,omitempty"`
+		StartTimestamp time.Time `json:"start_timestamp"`
 		Timestamp      time.Time `json:"timestamp"`
 		Type           string    `json:"type"`
 		Trace          string    `json:"trace,omitempty"`
@@ -95,13 +95,13 @@ func (t SentryTransaction) MarshalJSON() ([]byte, error) {
 		StartTimestamp: t.StartTimestamp.UTC(),
 		Timestamp:      t.Timestamp.UTC(),
 		Type:           "transaction",
-		alias:          (*alias)(&t),
+		alias:          (*alias)(t),
 	})
 }
 
 func transactionFromSpans(rootSpan *SentrySpan, childSpans []*SentrySpan) *SentryTransaction {
 	transaction := &SentryTransaction{
-		SentryEvent:    (*SentryEvent)(sentry.NewEvent()),
+		sentryEvent:    (*sentryEvent)(sentry.NewEvent()),
 		StartTimestamp: rootSpan.StartTimestamp,
 		Spans:          childSpans,
 	}

@@ -24,15 +24,20 @@ import (
 )
 
 func TestTransactionEnvelope(t *testing.T) {
-	env, err := transactionToEnvelope(transaction1)
+	b, err := transactionToEnvelope(transaction1)
+	assert.Nil(t, err)
+
+	env := string(b)
 
 	envParts := strings.Split(env, "\n")
 	assert.Len(t, envParts, 4)
 	assert.Empty(t, envParts[3])
 
 	// Header
-	header := &envelopeHeader{}
-	json.Unmarshal([]byte(envParts[0]), header)
+	header := &struct {
+		SentAt time.Time `json:"sent_at"`
+	}{}
+	err = json.Unmarshal([]byte(envParts[0]), header)
 	if err != nil {
 		t.Error(err)
 	} else {

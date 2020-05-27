@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/getsentry/sentry-go"
@@ -29,47 +28,14 @@ import (
 
 const defaultTimeout = time.Second * 30
 
-// envelopeHeader represents the top level header of a Sentry envelope
-type envelopeHeader struct {
-	SentAt time.Time `json:"sent_at"`
-}
+func transactionToEnvelope(t *SentryTransaction) (envelope []byte, err error) {
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
 
-func transactionToEnvelope(t *SentryTransaction) (envelope string, err error) {
-	header := &envelopeHeader{
-		SentAt: time.Now().UTC(),
-	}
-
-	headerJSON, err := json.Marshal(header)
-	if err != nil {
-		return "", err
-	}
-
-	var env strings.Builder
-
-	// Header
-	_, err = fmt.Fprintf(&env, "%s%s", headerJSON, "\n")
-	if err != nil {
-		return "", err
-	}
-
-	// Item Header
-	_, err = fmt.Fprintf(&env, "%s%s", `{"type":"transaction"}`, "\n")
-	if err != nil {
-		return "", err
-	}
-
-	transactionJSON, err := json.Marshal(t)
-	if err != nil {
-		return "", err
-	}
-
-	// Item Payload
-	_, err = fmt.Fprintf(&env, "%s%s", transactionJSON, "\n")
-	if err != nil {
-		return "", err
-	}
-
-	return env.String(), nil
+	fmt.Fprintf(&b, `{"sent_at":"%s"}`, time.Now().UTC().Format(time.RFC3339Nano))
+	fmt.Fprint(&b, "\n", `{"type":"transaction"}`, "\n")
+	err = enc.Encode(t)
+	return b.Bytes(), err
 }
 
 // A SentryTransport is used to deliver events to a remote server
