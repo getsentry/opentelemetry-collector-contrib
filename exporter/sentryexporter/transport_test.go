@@ -189,5 +189,7 @@ func TestRetryAfter(t *testing.T) {
 
 func TestEnvelopeAPIURL(t *testing.T) {
 	DSN, _ := sentry.NewDsn("https://key@host/path/42")
-	assert.Equal(t, "https://host/path/api/42/envelope/", envelopeAPIURL(DSN))
+	URL, err := envelopeAPIURL(DSN)
+	assert.Nil(t, err)
+	assert.Equal(t, "https://host/path/api/42/envelope/", URL)
 }

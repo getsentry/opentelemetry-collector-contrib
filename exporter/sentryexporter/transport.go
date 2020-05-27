@@ -104,16 +104,10 @@ func (t *SentryTransport) SendTransaction(transaction *SentryTransaction) error 
 		return errors.New("Transport is disabled, cannot send transactions")
 	}
 
-	envelope, err := transactionToEnvelope(transaction)
+	request, err := getRequest(transaction, t.DSN)
 	if err != nil {
 		return err
 	}
-
-	request, _ := http.NewRequest(
-		http.MethodPost,
-		envelopeAPIURL(t.DSN),
-		envelope,
-	)
 
 	for headerKey, headerValue := range t.DSN.RequestHeaders() {
 		request.Header.Set(headerKey, headerValue)
@@ -190,8 +184,47 @@ func retryAfter(now time.Time, r *http.Response) time.Duration {
 	return defaultRetryAfter
 }
 
-func envelopeAPIURL(DSN *sentry.Dsn) string {
+func getRequest(transaction *SentryTransaction, DSN *sentry.Dsn) (request *http.Request, err error) {
+	var body *bytes.Buffer
+	URL := ""
+	envURL, err := envelopeAPIURL(DSN)
+	if err == nil {
+		URL = envURL
+
+		envelope, err := transactionToEnvelope(transaction)
+		if err != nil {
+			return nil, err
+		}
+
+		body = envelope
+	} else {
+		URL = DSN.StoreAPIURL().String()
+
+		b, err := json.Marshal(transaction)
+		if err != nil {
+			return nil, err
+		}
+
+		body = bytes.NewBuffer(b)
+	}
+
+	request, _ = http.NewRequest(
+		http.MethodPost,
+		URL,
+		body,
+	)
+
+	return request, nil
+}
+
+func envelopeAPIURL(DSN *sentry.Dsn) (string, error) {
 	url := DSN.StoreAPIURL()
-	url.Path = strings.Replace(url.Path, "/store/", "/envelope/", -1)
-	return url.String()
+
+	if strings.HasSuffix(url.Path, "/store/") {
+		url.Path = strings.Replace(url.Path, "/store/", "/envelope/", -1)
+
+		return url.String(), nil
+	}
+
+	return "", errors.New("Envelope URL cannot be generated")
 }
