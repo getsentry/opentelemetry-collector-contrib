@@ -21,8 +21,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -192,7 +192,6 @@ func retryAfter(now time.Time, r *http.Response) time.Duration {
 
 func envelopeAPIURL(DSN *sentry.Dsn) string {
 	url := DSN.StoreAPIURL()
-	r := regexp.MustCompile("(/store/)")
-	url.Path = r.ReplaceAllString(url.Path, "/envelope/")
+	url.Path = strings.Replace(url.Path, "/store/", "/envelope/", -1)
 	return url.String()
 }
