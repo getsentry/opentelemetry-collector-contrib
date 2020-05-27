@@ -25,7 +25,9 @@ import (
 
 func TestTransactionEnvelope(t *testing.T) {
 	b, err := transactionToEnvelope(transaction1)
-	assert.Nil(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	env := string(b)
 
@@ -34,14 +36,17 @@ func TestTransactionEnvelope(t *testing.T) {
 	assert.Empty(t, envParts[3])
 
 	// Header
-	header := &struct {
-		SentAt time.Time `json:"sent_at"`
-	}{}
-	err = json.Unmarshal([]byte(envParts[0]), header)
+	var header map[string]interface{}
+	err = json.Unmarshal([]byte(envParts[0]), &header)
 	if err != nil {
-		t.Error(err)
-	} else {
-		assert.IsType(t, time.Time{}, header.SentAt)
+		t.Fatal(err)
+	}
+
+	sentAtStr := header["sent_at"].(string)
+
+	_, err = time.Parse(time.RFC3339Nano, sentAtStr)
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	// Item Header
