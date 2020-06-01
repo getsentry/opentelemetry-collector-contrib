@@ -14,114 +14,33 @@
 
 package sentryexporter
 
-import (
-	"encoding/json"
-	"time"
-
-	"github.com/getsentry/sentry-go"
-)
-
-// SentryEvent aliases the sentry Event type.
-// Needed to Marshal the transactions into JSON properly.
-type sentryEvent sentry.Event
-
-// Tags describe a set of Sentry Tags.
-type Tags map[string]string
-
-// SentrySpan describes a Span following the Sentry format.
-type SentrySpan struct {
-	TraceID        string    `json:"trace_id"`
-	SpanID         string    `json:"span_id"`
-	ParentSpanID   string    `json:"parent_span_id,omitempty"`
-	Description    string    `json:"description,omitempty"`
-	Op             string    `json:"op,omitempty"`
-	Tags           Tags      `json:"tags,omitempty"`
-	StartTimestamp time.Time `json:"start_timestamp"`
-	EndTimestamp   time.Time `json:"timestamp"`
-	Status         string    `json:"status"`
-	LibName        string    `json:"-"`
-	LibVersion     string    `json:"-"`
-	ResourceTags   Tags      `json:"-"`
-}
-
-// MarshalJSON converts the SentrySpan struct to JSON.
-func (s *SentrySpan) MarshalJSON() ([]byte, error) {
-	type alias SentrySpan
-	return json.Marshal(&struct {
-		StartTimestamp time.Time `json:"start_timestamp,omitempty"`
-		EndTimestamp   time.Time `json:"timestamp"`
-		*alias
-	}{
-		StartTimestamp: s.StartTimestamp.UTC(),
-		EndTimestamp:   s.EndTimestamp.UTC(),
-		alias:          (*alias)(s),
-	})
-}
+import "github.com/getsentry/sentry-go"
 
 // IsRootSpan determines if a span is a root span.
 // If parent span id is empty, then the span is a root span.
-func (s *SentrySpan) IsRootSpan() bool {
-	// See: https://github.com/open-telemetry/opentelemetry-proto/blob/28e27742/opentelemetry/proto/trace/v1/trace.proto#L82-L83
+func IsRootSpan(s *sentry.Span) bool {
 	return s.ParentSpanID == ""
 }
 
-// TraceContext describes the context of the trace.
-type TraceContext struct {
-	TraceID     string `json:"trace_id"`
-	SpanID      string `json:"span_id"`
-	Op          string `json:"op,omitempty"`
-	Description string `json:"description,omitempty"`
-}
+func transactionFromSpans(rootSpan *sentry.Span, childSpans []*sentry.Span, libName string, libVersion string, resourceTags map[string]string) *sentry.Event {
+	transaction := sentry.NewEvent()
 
-// SentryTransaction describes a Sentry Transaction.
-// TODO: generate extra fields when creating envelope Type, User, Platform, SDK
-type SentryTransaction struct {
-	*sentryEvent
-	StartTimestamp time.Time     `json:"start_timestamp"`
-	TraceContext   TraceContext  `json:"trace,omitempty"`
-	Spans          []*SentrySpan `json:"spans,omitempty"`
-}
-
-// MarshalJSON converts the SentryTransaction struct to JSON.
-func (t *SentryTransaction) MarshalJSON() ([]byte, error) {
-	type alias SentryTransaction
-	return json.Marshal(&struct {
-		StartTimestamp time.Time `json:"start_timestamp"`
-		Timestamp      time.Time `json:"timestamp"`
-		Type           string    `json:"type"`
-		Trace          string    `json:"trace,omitempty"`
-		*alias
-	}{
-		StartTimestamp: t.StartTimestamp.UTC(),
-		Timestamp:      t.Timestamp.UTC(),
-		Type:           "transaction",
-		alias:          (*alias)(t),
-	})
-}
-
-func transactionFromSpans(rootSpan *SentrySpan, childSpans []*SentrySpan) *SentryTransaction {
-	transaction := &SentryTransaction{
-		sentryEvent:    (*sentryEvent)(sentry.NewEvent()),
-		StartTimestamp: rootSpan.StartTimestamp,
-		Spans:          childSpans,
-	}
-
-	transaction.Contexts["trace"] = TraceContext{
+	transaction.Contexts["trace"] = sentry.TraceContext{
 		TraceID:     rootSpan.TraceID,
 		SpanID:      rootSpan.SpanID,
 		Op:          rootSpan.Op,
 		Description: rootSpan.Description,
 	}
 
-	transaction.Sdk.Name = rootSpan.LibName
-	transaction.Sdk.Version = rootSpan.LibVersion
+	transaction.Sdk.Name = libName
+	transaction.Sdk.Version = libVersion
 
 	transaction.Tags = rootSpan.Tags
 	transaction.Timestamp = rootSpan.EndTimestamp
 	transaction.Transaction = rootSpan.Description
 
 	// Transactions should store resource tags
-	for k, v := range rootSpan.ResourceTags {
+	for k, v := range resourceTags {
 		transaction.Tags[k] = v
 	}
 

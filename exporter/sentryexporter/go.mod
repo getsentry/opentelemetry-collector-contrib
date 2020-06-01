@@ -10,3 +10,5 @@ require (
 	github.com/stretchr/testify v1.5.1
 	go.uber.org/zap v1.15.0
 )
+
+replace github.com/getsentry/sentry-go => /Users/abhijeetprasad/workspace/sentry-go

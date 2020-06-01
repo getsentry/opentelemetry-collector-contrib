@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/getsentry/sentry-go"
 	"github.com/open-telemetry/opentelemetry-collector/component"
 	"github.com/open-telemetry/opentelemetry-collector/consumer/pdata"
 	"github.com/open-telemetry/opentelemetry-collector/exporter/exporterhelper"
@@ -57,13 +58,23 @@ var (
 
 // SentryExporter defines the Sentry Exporter.
 type SentryExporter struct {
-	transport *SentryTransport
+	transport *sentry.HTTPTransport
 }
 
 // rootSpanTree stores a root span and it's child spans.
 type rootSpanTree struct {
-	rootSpan   *SentrySpan
-	childSpans []*SentrySpan
+	rootSpan       *sentry.Span
+	childSpans     []*sentry.Span
+	libraryName    string
+	libraryVersion string
+	resourceTags   map[string]string
+}
+
+type orphanSpan struct {
+	span           *sentry.Span
+	libraryName    string
+	libraryVersion string
+	resourceTags   map[string]string
 }
 
 // TODO: Add to function
@@ -74,7 +85,7 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 		return 0, nil
 	}
 
-	orphanSpans := make([]*SentrySpan, 0, td.SpanCount())
+	orphanSpans := make([]*orphanSpan, 0, td.SpanCount())
 
 	// Maps all child span ids to their root span.
 	idMap := make(map[string]string)
@@ -97,16 +108,16 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 			}
 
 			library := ils.InstrumentationLibrary()
-			LibName := "sentry.opentelemetry.collector"
-			LibVersion := otelSentryExporterVersion
+			libName := "sentry.opentelemetry.collector"
+			libVersion := otelSentryExporterVersion
 
 			if !library.IsNil() {
 				name := library.Name()
 				version := library.Version()
 
 				if name != "" && version != "" {
-					LibName = name
-					LibVersion = version
+					libName = name
+					libVersion = version
 				}
 			}
 
@@ -117,13 +128,16 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 					continue
 				}
 
-				sentrySpan := convertToSentrySpan(otelSpan, resourceTags, LibName, LibVersion)
+				sentrySpan := convertToSentrySpan(otelSpan)
 
-				if sentrySpan.IsRootSpan() {
+				if IsRootSpan(sentrySpan) {
 					// Add root span to span store map
 					rootSpanTreeMap[sentrySpan.SpanID] = &rootSpanTree{
-						rootSpan:   sentrySpan,
-						childSpans: make([]*SentrySpan, 0),
+						rootSpan:       sentrySpan,
+						childSpans:     make([]*sentry.Span, 0),
+						libraryName:    libName,
+						libraryVersion: libVersion,
+						resourceTags:   resourceTags,
 					}
 
 					idMap[sentrySpan.SpanID] = sentrySpan.SpanID
@@ -132,7 +146,12 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 						idMap[sentrySpan.SpanID] = rootSpanID
 						rootSpanTreeMap[rootSpanID].childSpans = append(rootSpanTreeMap[rootSpanID].childSpans, sentrySpan)
 					} else {
-						orphanSpans = append(orphanSpans, sentrySpan)
+						orphanSpans = append(orphanSpans, &orphanSpan{
+							span:           sentrySpan,
+							libraryName:    libName,
+							libraryVersion: libVersion,
+							resourceTags:   resourceTags,
+						})
 					}
 				}
 			}
@@ -143,46 +162,43 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 
 	transactions := generateTransactions(rootSpanTreeMap, orphanSpans)
 
-	droppedSpans = 0
 	for _, t := range transactions {
-		err := s.transport.SendTransaction(t)
-		if err != nil {
-			droppedSpans += 1 + len(t.Spans)
-		}
+		s.transport.SendEvent(t)
 	}
 
-	return droppedSpans, nil
+	return 0, nil
 }
 
-func generateTransactions(rootSpanTreeMap map[string]*rootSpanTree, orphanSpans []*SentrySpan) []*SentryTransaction {
-	transactions := make([]*SentryTransaction, 0, len(rootSpanTreeMap)+len(orphanSpans))
+func generateTransactions(rootSpanTreeMap map[string]*rootSpanTree, orphanSpans []*orphanSpan) []*sentry.Event {
+	transactions := make([]*sentry.Event, 0, len(rootSpanTreeMap)+len(orphanSpans))
 
 	for _, rtree := range rootSpanTreeMap {
-		transaction := transactionFromSpans(rtree.rootSpan, rtree.childSpans)
+		transaction := transactionFromSpans(rtree.rootSpan, rtree.childSpans, rtree.libraryName, rtree.libraryVersion, rtree.resourceTags)
 		transactions = append(transactions, transaction)
 	}
 
-	for _, span := range orphanSpans {
-		transaction := transactionFromSpans(span, nil)
+	for _, orphan := range orphanSpans {
+		transaction := transactionFromSpans(orphan.span, nil, orphan.libraryName, orphan.libraryVersion, orphan.resourceTags)
 		transactions = append(transactions, transaction)
 	}
 
 	return transactions
 }
 
-func classifyOrphanSpans(orphanSpans []*SentrySpan, prevLength int, idMap map[string]string, rootSpanTreeMap map[string]*rootSpanTree) []*SentrySpan {
+func classifyOrphanSpans(orphanSpans []*orphanSpan, prevLength int, idMap map[string]string, rootSpanTreeMap map[string]*rootSpanTree) []*orphanSpan {
 	if len(orphanSpans) == 0 || len(orphanSpans) == prevLength {
 		return orphanSpans
 	}
 
-	newOrphanSpans := make([]*SentrySpan, 0, prevLength)
+	newOrphanSpans := make([]*orphanSpan, 0, prevLength)
 
-	for _, span := range orphanSpans {
+	for _, orphan := range orphanSpans {
+		span := orphan.span
 		if rootSpanID, ok := idMap[span.ParentSpanID]; ok {
 			idMap[span.SpanID] = rootSpanID
 			rootSpanTreeMap[rootSpanID].childSpans = append(rootSpanTreeMap[rootSpanID].childSpans, span)
 		} else {
-			newOrphanSpans = append(newOrphanSpans, span)
+			newOrphanSpans = append(newOrphanSpans, orphan)
 		}
 	}
 
@@ -192,7 +208,7 @@ func classifyOrphanSpans(orphanSpans []*SentrySpan, prevLength int, idMap map[st
 // TODO: Span.Link
 // TODO; Span.Event -> create breadcrumbs
 // TODO: Span.TraceState()
-func convertToSentrySpan(span pdata.Span, resourceTags Tags, LibName string, LibVersion string) (sentrySpan *SentrySpan) {
+func convertToSentrySpan(span pdata.Span) (sentrySpan *sentry.Span) {
 	if span.IsNil() {
 		return nil
 	}
@@ -219,7 +235,7 @@ func convertToSentrySpan(span pdata.Span, resourceTags Tags, LibName string, Lib
 		tags["span_kind"] = spanKind.String()
 	}
 
-	sentrySpan = &SentrySpan{
+	sentrySpan = &sentry.Span{
 		TraceID:        span.TraceID().String(),
 		SpanID:         span.SpanID().String(),
 		ParentSpanID:   parentSpanID,
@@ -229,9 +245,6 @@ func convertToSentrySpan(span pdata.Span, resourceTags Tags, LibName string, Lib
 		StartTimestamp: unixNanoToTime(span.StartTime()),
 		EndTimestamp:   unixNanoToTime(span.EndTime()),
 		Status:         status,
-		ResourceTags:   resourceTags,
-		LibName:        LibName,
-		LibVersion:     LibVersion,
 	}
 
 	return sentrySpan
@@ -306,7 +319,7 @@ func generateSpanDescriptors(name string, attrs pdata.AttributeMap, spanKind pda
 	return "", name
 }
 
-func generateTagsFromAttributes(attrs pdata.AttributeMap) Tags {
+func generateTagsFromAttributes(attrs pdata.AttributeMap) map[string]string {
 	tags := make(map[string]string)
 
 	attrs.ForEach(func(key string, attr pdata.AttributeValue) {
@@ -340,8 +353,10 @@ func statusFromSpanStatus(spanStatus pdata.SpanStatus) (status string, message s
 
 // CreateSentryExporter returns a new Sentry Exporter.
 func CreateSentryExporter(config *Config) (component.TraceExporter, error) {
-	transport := NewSentryTransport()
-	transport.Configure(config)
+	transport := sentry.NewHTTPTransport()
+	transport.Configure(sentry.ClientOptions{
+		Dsn: config.DSN,
+	})
 
 	s := &SentryExporter{
 		transport: transport,
