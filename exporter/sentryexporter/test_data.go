@@ -14,6 +14,8 @@
 
 package sentryexporter
 
+import "github.com/getsentry/sentry-go"
+
 /*
 	for trace d6c4f03650bd47699ec65c84352b6208:
 	rootSpan1 <- childSpan1 <- childChildSpan1
@@ -23,7 +25,7 @@ package sentryexporter
 */
 
 var (
-	rootSpan1 = &SentrySpan{
+	rootSpan1 = &sentry.Span{
 		TraceID:      "d6c4f03650bd47699ec65c84352b6208",
 		SpanID:       "1cc4b26ab9094ef0",
 		ParentSpanID: "",
@@ -39,7 +41,7 @@ var (
 		Status:         "ok",
 	}
 
-	childSpan1 = &SentrySpan{
+	childSpan1 = &sentry.Span{
 		TraceID:      "d6c4f03650bd47699ec65c84352b6208",
 		SpanID:       "93ba92db3fa24752",
 		ParentSpanID: "1cc4b26ab9094ef0",
@@ -55,7 +57,7 @@ var (
 		Status:         "ok",
 	}
 
-	childChildSpan1 = &SentrySpan{
+	childChildSpan1 = &sentry.Span{
 		TraceID:      "d6c4f03650bd47699ec65c84352b6208",
 		SpanID:       "1fa8913ec3814d34",
 		ParentSpanID: "93ba92db3fa24752",
@@ -71,7 +73,7 @@ var (
 		Status:         "ok",
 	}
 
-	childSpan2 = &SentrySpan{
+	childSpan2 = &sentry.Span{
 		TraceID:      "d6c4f03650bd47699ec65c84352b6208",
 		SpanID:       "34efcde268684bb0",
 		ParentSpanID: "1cc4b26ab9094ef0",
@@ -85,7 +87,7 @@ var (
 		Status:         "ok",
 	}
 
-	orphanSpan = &SentrySpan{
+	orphanSpan1 = &sentry.Span{
 		TraceID:        "d6c4f03650bd47699ec65c84352b6208",
 		SpanID:         "6241111811384fae",
 		ParentSpanID:   "1930bb5cc45c4003",
@@ -97,7 +99,7 @@ var (
 		Status:         "ok",
 	}
 
-	rootSpan2 = &SentrySpan{
+	rootSpan2 = &sentry.Span{
 		TraceID:      "d6c4f03650bd47699ec65c84352b6208",
 		SpanID:       "4c7f56556ffe4e4a",
 		ParentSpanID: "",
@@ -112,7 +114,7 @@ var (
 		Status:         "ok",
 	}
 
-	root2childSpan = &SentrySpan{
+	root2childSpan = &sentry.Span{
 		TraceID:      "d6c4f03650bd47699ec65c84352b6208",
 		SpanID:       "7ff3c8daf8184fee",
 		ParentSpanID: "4c7f56556ffe4e4a",
@@ -126,6 +128,6 @@ var (
 		Status:         "ok",
 	}
 
-	transaction1 = transactionFromSpans(rootSpan1, []*SentrySpan{childSpan1, childChildSpan1, childSpan2})
-	transaction2 = transactionFromSpans(rootSpan2, []*SentrySpan{root2childSpan})
+	transaction1 = transactionFromSpans(rootSpan1, []*sentry.Span{childSpan1, childChildSpan1, childSpan2}, "otel-lib", "0.0.1", map[string]string{})
+	transaction2 = transactionFromSpans(rootSpan2, []*sentry.Span{root2childSpan}, "otel-lib", "0.0.1", map[string]string{})
 )
