@@ -22,29 +22,30 @@ func IsRootSpan(s *sentry.Span) bool {
 	return s.ParentSpanID == ""
 }
 
-func transactionFromSpans(rootSpan *sentry.Span, childSpans []*sentry.Span, libName string, libVersion string, resourceTags map[string]string) *sentry.Event {
+func transactionFromTree(rtree *rootSpanTree) *sentry.Event {
 	transaction := sentry.NewEvent()
 
 	transaction.Contexts["trace"] = sentry.TraceContext{
-		TraceID:     rootSpan.TraceID,
-		SpanID:      rootSpan.SpanID,
-		Op:          rootSpan.Op,
-		Description: rootSpan.Description,
+		TraceID:     rtree.rootSpan.TraceID,
+		SpanID:      rtree.rootSpan.SpanID,
+		Op:          rtree.rootSpan.Op,
+		Description: rtree.rootSpan.Description,
+		Status:      rtree.rootSpan.Status,
 	}
 
 	transaction.Type = "transaction"
 
-	transaction.Sdk.Name = libName
-	transaction.Sdk.Version = libVersion
+	transaction.Sdk.Name = rtree.libraryName
+	transaction.Sdk.Version = rtree.libraryVersion
 
-	transaction.Spans = childSpans
-	transaction.StartTimestamp = rootSpan.StartTimestamp
-	transaction.Tags = rootSpan.Tags
-	transaction.Timestamp = rootSpan.EndTimestamp
-	transaction.Transaction = rootSpan.Description
+	transaction.Spans = rtree.childSpans
+	transaction.StartTimestamp = rtree.rootSpan.StartTimestamp
+	transaction.Tags = rtree.rootSpan.Tags
+	transaction.Timestamp = rtree.rootSpan.EndTimestamp
+	transaction.Transaction = rtree.rootSpan.Description
 
 	// Transactions should store resource tags
-	for k, v := range resourceTags {
+	for k, v := range rtree.resourceTags {
 		transaction.Tags[k] = v
 	}
 

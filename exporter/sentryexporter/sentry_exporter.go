@@ -173,12 +173,19 @@ func generateTransactions(rootSpanTreeMap map[string]*rootSpanTree, orphanSpans 
 	transactions := make([]*sentry.Event, 0, len(rootSpanTreeMap)+len(orphanSpans))
 
 	for _, rtree := range rootSpanTreeMap {
-		transaction := transactionFromSpans(rtree.rootSpan, rtree.childSpans, rtree.libraryName, rtree.libraryVersion, rtree.resourceTags)
+		transaction := transactionFromTree(rtree)
 		transactions = append(transactions, transaction)
 	}
 
 	for _, orphan := range orphanSpans {
-		transaction := transactionFromSpans(orphan.span, nil, orphan.libraryName, orphan.libraryVersion, orphan.resourceTags)
+		rtree := &rootSpanTree{
+			rootSpan:       orphan.span,
+			childSpans:     nil,
+			libraryName:    orphan.libraryName,
+			libraryVersion: orphan.libraryVersion,
+			resourceTags:   orphan.resourceTags,
+		}
+		transaction := transactionFromTree(rtree)
 		transactions = append(transactions, transaction)
 	}
 
