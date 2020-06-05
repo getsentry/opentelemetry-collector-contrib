@@ -33,10 +33,15 @@ func transactionFromTree(rtree *rootSpanTree) *sentry.Event {
 		Status:      rtree.rootSpan.Status,
 	}
 
+	transaction.Contexts["library"] = map[string]string{
+		"name":    rtree.libraryName,
+		"version": rtree.libraryVersion,
+	}
+
 	transaction.Type = "transaction"
 
-	transaction.Sdk.Name = rtree.libraryName
-	transaction.Sdk.Version = rtree.libraryVersion
+	transaction.Sdk.Name = otelSentryExporterName
+	transaction.Sdk.Version = otelSentryExporterVersion
 
 	transaction.Spans = rtree.childSpans
 	transaction.StartTimestamp = rtree.rootSpan.StartTimestamp

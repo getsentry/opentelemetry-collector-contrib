@@ -37,11 +37,11 @@ func generateEmptyRootSpanTreeMap(rootSpans ...*sentry.Span) map[string]*rootSpa
 	return rootSpanTreeMap
 }
 
-func generateOrphanSpansFromSpans(spans ...*sentry.Span) []*orphanSpan {
-	orphanSpans := make([]*orphanSpan, 0, len(spans))
+func generateOrphanSpansFromSpans(spans ...*sentry.Span) []*spanCollection {
+	orphanSpans := make([]*spanCollection, 0, len(spans))
 
 	for _, span := range spans {
-		orphanSpans = append(orphanSpans, &orphanSpan{
+		orphanSpans = append(orphanSpans, &spanCollection{
 			span: span,
 		})
 	}
@@ -309,9 +309,9 @@ type ClassifyOrphanSpanTestCase struct {
 	// input
 	idMap           map[string]string
 	rootSpanTreeMap map[string]*rootSpanTree
-	spans           []*orphanSpan
+	spans           []*spanCollection
 	// output
-	assertion func(t *testing.T, orphanSpans []*orphanSpan)
+	assertion func(t *testing.T, orphanSpans []*spanCollection)
 }
 
 func TestClassifyOrphanSpans(t *testing.T) {
@@ -321,7 +321,7 @@ func TestClassifyOrphanSpans(t *testing.T) {
 			idMap:           make(map[string]string),
 			rootSpanTreeMap: generateEmptyRootSpanTreeMap(),
 			spans:           generateOrphanSpansFromSpans(childSpan1, childSpan2),
-			assertion: func(t *testing.T, orphanSpans []*orphanSpan) {
+			assertion: func(t *testing.T, orphanSpans []*spanCollection) {
 				assert.Len(t, orphanSpans, 2)
 			},
 		},
@@ -334,7 +334,7 @@ func TestClassifyOrphanSpans(t *testing.T) {
 			}(),
 			rootSpanTreeMap: generateEmptyRootSpanTreeMap(rootSpan1),
 			spans:           generateOrphanSpansFromSpans(childChildSpan1, childSpan1, childSpan2),
-			assertion: func(t *testing.T, orphanSpans []*orphanSpan) {
+			assertion: func(t *testing.T, orphanSpans []*spanCollection) {
 				assert.Len(t, orphanSpans, 0)
 			},
 		},
@@ -347,7 +347,7 @@ func TestClassifyOrphanSpans(t *testing.T) {
 			}(),
 			rootSpanTreeMap: generateEmptyRootSpanTreeMap(rootSpan1),
 			spans:           generateOrphanSpansFromSpans(childChildSpan1, childSpan1, childSpan2, orphanSpan1),
-			assertion: func(t *testing.T, orphanSpans []*orphanSpan) {
+			assertion: func(t *testing.T, orphanSpans []*spanCollection) {
 				assert.Len(t, orphanSpans, 1)
 				assert.Equal(t, orphanSpan1, orphanSpans[0].span)
 			},
@@ -362,7 +362,7 @@ func TestClassifyOrphanSpans(t *testing.T) {
 			}(),
 			rootSpanTreeMap: generateEmptyRootSpanTreeMap(rootSpan1, rootSpan2),
 			spans:           generateOrphanSpansFromSpans(childChildSpan1, childSpan1, root2childSpan, childSpan2),
-			assertion: func(t *testing.T, orphanSpans []*orphanSpan) {
+			assertion: func(t *testing.T, orphanSpans []*spanCollection) {
 				assert.Len(t, orphanSpans, 0)
 			},
 		},
@@ -370,7 +370,7 @@ func TestClassifyOrphanSpans(t *testing.T) {
 
 	for _, test := range testCases {
 		t.Run(test.testName, func(t *testing.T) {
-			orphanSpans := classifyOrphanSpans(test.spans, len(test.spans)+1, test.idMap, test.rootSpanTreeMap)
+			orphanSpans := classifyAsOrphanSpans(test.spans, len(test.spans)+1, test.idMap, test.rootSpanTreeMap)
 			test.assertion(t, orphanSpans)
 		})
 	}

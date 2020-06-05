@@ -54,6 +54,7 @@ var (
 	}
 
 	otelSentryExporterVersion = "0.0.1"
+	otelSentryExporterName    = "sentry.opentelemetry.collector"
 )
 
 // SentryExporter defines the Sentry Exporter.
@@ -70,14 +71,13 @@ type rootSpanTree struct {
 	resourceTags   map[string]string
 }
 
-type orphanSpan struct {
+type spanCollection struct {
 	span           *sentry.Span
 	libraryName    string
 	libraryVersion string
 	resourceTags   map[string]string
 }
 
-// TODO: Add to function
 func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (droppedSpans int, err error) {
 	// For a ResourceSpan, InstrumentationLibrarySpan and Span struct if IsNil() is "true", all other methods will cause a runtime error.
 	resourceSpans := td.ResourceSpans()
@@ -85,7 +85,7 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 		return 0, nil
 	}
 
-	orphanSpans := make([]*orphanSpan, 0, td.SpanCount())
+	maybeOrphanSpans := make([]*spanCollection, 0, td.SpanCount())
 
 	// Maps all child span ids to their root span.
 	idMap := make(map[string]string)
@@ -108,9 +108,8 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 			}
 
 			library := ils.InstrumentationLibrary()
-			libName := "sentry.opentelemetry.collector"
-			libVersion := otelSentryExporterVersion
-
+			libName := ""
+			libVersion := ""
 			if !library.IsNil() {
 				name := library.Name()
 				version := library.Version()
@@ -130,8 +129,13 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 
 				sentrySpan := convertToSentrySpan(otelSpan)
 
+				// If a span is a root span, we consider it the start of a Sentry transaction.
+				// We should then keep create a new root span tree for that root span, and
+				// keep track of that transaction.
+				//
+				// If the span is not a root span, we can either associate it with an existing
+				// span tree, or we can temporarily consider it an orphan span.
 				if IsRootSpan(sentrySpan) {
-					// Add root span to span store map
 					rootSpanTreeMap[sentrySpan.SpanID] = &rootSpanTree{
 						rootSpan:       sentrySpan,
 						childSpans:     make([]*sentry.Span, 0),
@@ -146,7 +150,7 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 						idMap[sentrySpan.SpanID] = rootSpanID
 						rootSpanTreeMap[rootSpanID].childSpans = append(rootSpanTreeMap[rootSpanID].childSpans, sentrySpan)
 					} else {
-						orphanSpans = append(orphanSpans, &orphanSpan{
+						maybeOrphanSpans = append(maybeOrphanSpans, &spanCollection{
 							span:           sentrySpan,
 							libraryName:    libName,
 							libraryVersion: libVersion,
@@ -158,7 +162,9 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 		}
 	}
 
-	orphanSpans = classifyOrphanSpans(orphanSpans, len(orphanSpans)+1, idMap, rootSpanTreeMap)
+	// After the first pass through, we can't necessarily make the assumption we have not associated all
+	// the spans with an span tree. As such, we must classify the remaining spans as orphans or not.
+	orphanSpans := classifyAsOrphanSpans(maybeOrphanSpans, len(maybeOrphanSpans)+1, idMap, rootSpanTreeMap)
 
 	transactions := generateTransactions(rootSpanTreeMap, orphanSpans)
 
@@ -169,7 +175,8 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 	return 0, nil
 }
 
-func generateTransactions(rootSpanTreeMap map[string]*rootSpanTree, orphanSpans []*orphanSpan) []*sentry.Event {
+// generateTransactions creates a set of Sentry Transaction event from a set of root span trees and orphan spans.
+func generateTransactions(rootSpanTreeMap map[string]*rootSpanTree, orphanSpans []*spanCollection) []*sentry.Event {
 	transactions := make([]*sentry.Event, 0, len(rootSpanTreeMap)+len(orphanSpans))
 
 	for _, rtree := range rootSpanTreeMap {
@@ -192,12 +199,15 @@ func generateTransactions(rootSpanTreeMap map[string]*rootSpanTree, orphanSpans 
 	return transactions
 }
 
-func classifyOrphanSpans(orphanSpans []*orphanSpan, prevLength int, idMap map[string]string, rootSpanTreeMap map[string]*rootSpanTree) []*orphanSpan {
+// classifyAsOrphanSpans iterates through a list of possible orphan spans and tries to associate them
+// with a root span tree. As the order of the spans is not guaranteed, we have to recursively call
+// classifyAsOrphanSpans to make sure that we did not leave any spans out of their root span tree.
+func classifyAsOrphanSpans(orphanSpans []*spanCollection, prevLength int, idMap map[string]string, rootSpanTreeMap map[string]*rootSpanTree) []*spanCollection {
 	if len(orphanSpans) == 0 || len(orphanSpans) == prevLength {
 		return orphanSpans
 	}
 
-	newOrphanSpans := make([]*orphanSpan, 0, prevLength)
+	newOrphanSpans := make([]*spanCollection, 0, prevLength)
 
 	for _, orphan := range orphanSpans {
 		span := orphan.span
@@ -209,12 +219,9 @@ func classifyOrphanSpans(orphanSpans []*orphanSpan, prevLength int, idMap map[st
 		}
 	}
 
-	return classifyOrphanSpans(newOrphanSpans, len(orphanSpans), idMap, rootSpanTreeMap)
+	return classifyAsOrphanSpans(newOrphanSpans, len(orphanSpans), idMap, rootSpanTreeMap)
 }
 
-// TODO: Span.Link
-// TODO; Span.Event -> create breadcrumbs
-// TODO: Span.TraceState()
 func convertToSentrySpan(span pdata.Span) (sentrySpan *sentry.Span) {
 	if span.IsNil() {
 		return nil
@@ -257,11 +264,13 @@ func convertToSentrySpan(span pdata.Span) (sentrySpan *sentry.Span) {
 	return sentrySpan
 }
 
-// To generate span descriptors (op and description) for a particular span we use
-// Semantic Conventions described by the open telemetry specification.
+// generateSpanDescriptors generates generate span descriptors (op and description)
+// from the name, attributes and SpanKind of an otel span based onSemantic Conventions
+// described by the open telemetry specification.
+//
+// See https://github.com/open-telemetry/opentelemetry-specification/tree/5b78ee1/specification/trace/semantic_conventions
+// for more details about the semantic conventions.
 func generateSpanDescriptors(name string, attrs pdata.AttributeMap, spanKind pdata.SpanKind) (op string, description string) {
-	// See https://github.com/open-telemetry/opentelemetry-specification/tree/5b78ee1/specification/trace/semantic_conventions
-	// for more details about the semantic conventions.
 	var opBuilder strings.Builder
 	var dBuilder strings.Builder
 
@@ -288,7 +297,6 @@ func generateSpanDescriptors(name string, attrs pdata.AttributeMap, spanKind pda
 
 	// If db.type exists then this is a database call span.
 	if _, ok := attrs.Get(conventions.AttributeDBType); ok {
-		// TODO: Use more detailed op code?
 		opBuilder.WriteString("db")
 
 		// Use DB statement (Ex "SELECT * FROM table") if possible as description.
@@ -372,11 +380,18 @@ func CreateSentryExporter(config *Config) (component.TraceExporter, error) {
 	return exporterhelper.NewTraceExporter(
 		config,
 		s.pushTraceData,
-		exporterhelper.WithShutdown(func(context.Context) error {
-			allEventsFlushed := transport.Flush(time.Second)
+		exporterhelper.WithShutdown(func(ctx context.Context) error {
+			deadline, ok := ctx.Deadline()
+			allEventsFlushed := true
+
+			if ok {
+				allEventsFlushed = transport.Flush(deadline.Sub(time.Now()))
+			} else {
+				allEventsFlushed = transport.Flush(time.Second)
+			}
 
 			if !allEventsFlushed {
-				log.Print("Flushing event buffer reached timeout")
+				log.Print("Could not flush all events, reached timeout")
 			}
 
 			return nil
