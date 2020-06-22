@@ -129,17 +129,11 @@ var (
 	}
 
 	transaction1 = transactionFromTree(&rootSpanTree{
-		rootSpan:       rootSpan1,
-		childSpans:     []*sentry.Span{childSpan1, childChildSpan1, childSpan2},
-		libraryName:    "otel-lib",
-		libraryVersion: "0.0.1",
-		resourceTags:   map[string]string{},
+		rootSpan:   rootSpan1,
+		childSpans: []*sentry.Span{childSpan1, childChildSpan1, childSpan2},
 	})
 	transaction2 = transactionFromTree(&rootSpanTree{
-		rootSpan:       rootSpan2,
-		childSpans:     []*sentry.Span{root2childSpan},
-		libraryName:    "otel-lib",
-		libraryVersion: "0.0.1",
-		resourceTags:   map[string]string{},
+		rootSpan:   rootSpan2,
+		childSpans: []*sentry.Span{root2childSpan},
 	})
 )

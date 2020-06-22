@@ -29,33 +29,33 @@ import (
 	"github.com/open-telemetry/opentelemetry-collector/translator/conventions"
 )
 
-var (
-	sentryStatusUnknown = "unknown"
-	// canonicalCodes maps OpenTelemetry span codes to Sentry's span status.
-	// See numeric codes in https://godoc.org/github.com/open-telemetry/opentelemetry-proto/gen/go/trace/v1#Status_StatusCode.
-	canonicalCodes = [...]string{
-		"ok",
-		"cancelled",
-		sentryStatusUnknown,
-		"invalid_argument",
-		"deadline_exceeded",
-		"not_found",
-		"already_exists",
-		"permission_denied",
-		"resource_exhausted",
-		"failed_precondition",
-		"aborted",
-		"out_of_range",
-		"unimplemented",
-		"internal",
-		"unavailable",
-		"data_loss",
-		"unauthenticated",
-	}
-
+const (
+	sentryStatusUnknown       = "unknown"
 	otelSentryExporterVersion = "0.0.1"
-	otelSentryExporterName    = "sentry.opentelemetry.collector"
+	otelSentryExporterName    = "sentry.opentelemetry"
 )
+
+// canonicalCodes maps OpenTelemetry span codes to Sentry's span status.
+// See numeric codes in https://godoc.org/github.com/open-telemetry/opentelemetry-proto/gen/go/trace/v1#Status_StatusCode.
+var canonicalCodes = [...]string{
+	"ok",
+	"cancelled",
+	sentryStatusUnknown,
+	"invalid_argument",
+	"deadline_exceeded",
+	"not_found",
+	"already_exists",
+	"permission_denied",
+	"resource_exhausted",
+	"failed_precondition",
+	"aborted",
+	"out_of_range",
+	"unimplemented",
+	"internal",
+	"unavailable",
+	"data_loss",
+	"unauthenticated",
+}
 
 // SentryExporter defines the Sentry Exporter.
 type SentryExporter struct {
@@ -64,18 +64,8 @@ type SentryExporter struct {
 
 // rootSpanTree stores a root span and it's child spans.
 type rootSpanTree struct {
-	rootSpan       *sentry.Span
-	childSpans     []*sentry.Span
-	libraryName    string
-	libraryVersion string
-	resourceTags   map[string]string
-}
-
-type spanCollection struct {
-	span           *sentry.Span
-	libraryName    string
-	libraryVersion string
-	resourceTags   map[string]string
+	rootSpan   *sentry.Span
+	childSpans []*sentry.Span
 }
 
 func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (droppedSpans int, err error) {
@@ -85,7 +75,7 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 		return 0, nil
 	}
 
-	maybeOrphanSpans := make([]*spanCollection, 0, td.SpanCount())
+	maybeOrphanSpans := make([]*sentry.Span, 0, td.SpanCount())
 
 	// Maps all child span ids to their root span.
 	idMap := make(map[string]string)
@@ -108,17 +98,6 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 			}
 
 			library := ils.InstrumentationLibrary()
-			libName := ""
-			libVersion := ""
-			if !library.IsNil() {
-				name := library.Name()
-				version := library.Version()
-
-				if name != "" && version != "" {
-					libName = name
-					libVersion = version
-				}
-			}
 
 			spans := ils.Spans()
 			for k := 0; k < spans.Len(); k++ {
@@ -127,7 +106,7 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 					continue
 				}
 
-				sentrySpan := convertToSentrySpan(otelSpan)
+				sentrySpan := convertToSentrySpan(otelSpan, library, resourceTags)
 
 				// If a span is a root span, we consider it the start of a Sentry transaction.
 				// We should then keep create a new root span tree for that root span, and
@@ -135,13 +114,10 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 				//
 				// If the span is not a root span, we can either associate it with an existing
 				// span tree, or we can temporarily consider it an orphan span.
-				if IsRootSpan(sentrySpan) {
+				if isRootSpan(sentrySpan) {
 					rootSpanTreeMap[sentrySpan.SpanID] = &rootSpanTree{
-						rootSpan:       sentrySpan,
-						childSpans:     make([]*sentry.Span, 0),
-						libraryName:    libName,
-						libraryVersion: libVersion,
-						resourceTags:   resourceTags,
+						rootSpan:   sentrySpan,
+						childSpans: nil,
 					}
 
 					idMap[sentrySpan.SpanID] = sentrySpan.SpanID
@@ -150,12 +126,7 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 						idMap[sentrySpan.SpanID] = rootSpanID
 						rootSpanTreeMap[rootSpanID].childSpans = append(rootSpanTreeMap[rootSpanID].childSpans, sentrySpan)
 					} else {
-						maybeOrphanSpans = append(maybeOrphanSpans, &spanCollection{
-							span:           sentrySpan,
-							libraryName:    libName,
-							libraryVersion: libVersion,
-							resourceTags:   resourceTags,
-						})
+						maybeOrphanSpans = append(maybeOrphanSpans, sentrySpan)
 					}
 				}
 			}
@@ -176,7 +147,7 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 }
 
 // generateTransactions creates a set of Sentry Transaction event from a set of root span trees and orphan spans.
-func generateTransactions(rootSpanTreeMap map[string]*rootSpanTree, orphanSpans []*spanCollection) []*sentry.Event {
+func generateTransactions(rootSpanTreeMap map[string]*rootSpanTree, orphanSpans []*sentry.Span) []*sentry.Event {
 	transactions := make([]*sentry.Event, 0, len(rootSpanTreeMap)+len(orphanSpans))
 
 	for _, rtree := range rootSpanTreeMap {
@@ -184,13 +155,10 @@ func generateTransactions(rootSpanTreeMap map[string]*rootSpanTree, orphanSpans 
 		transactions = append(transactions, transaction)
 	}
 
-	for _, orphan := range orphanSpans {
+	for _, orphanSpan := range orphanSpans {
 		rtree := &rootSpanTree{
-			rootSpan:       orphan.span,
-			childSpans:     nil,
-			libraryName:    orphan.libraryName,
-			libraryVersion: orphan.libraryVersion,
-			resourceTags:   orphan.resourceTags,
+			rootSpan:   orphanSpan,
+			childSpans: nil,
 		}
 		transaction := transactionFromTree(rtree)
 		transactions = append(transactions, transaction)
@@ -202,27 +170,26 @@ func generateTransactions(rootSpanTreeMap map[string]*rootSpanTree, orphanSpans 
 // classifyAsOrphanSpans iterates through a list of possible orphan spans and tries to associate them
 // with a root span tree. As the order of the spans is not guaranteed, we have to recursively call
 // classifyAsOrphanSpans to make sure that we did not leave any spans out of their root span tree.
-func classifyAsOrphanSpans(orphanSpans []*spanCollection, prevLength int, idMap map[string]string, rootSpanTreeMap map[string]*rootSpanTree) []*spanCollection {
+func classifyAsOrphanSpans(orphanSpans []*sentry.Span, prevLength int, idMap map[string]string, rootSpanTreeMap map[string]*rootSpanTree) []*sentry.Span {
 	if len(orphanSpans) == 0 || len(orphanSpans) == prevLength {
 		return orphanSpans
 	}
 
-	newOrphanSpans := make([]*spanCollection, 0, prevLength)
+	newOrphanSpans := make([]*sentry.Span, 0, prevLength)
 
-	for _, orphan := range orphanSpans {
-		span := orphan.span
-		if rootSpanID, ok := idMap[span.ParentSpanID]; ok {
-			idMap[span.SpanID] = rootSpanID
-			rootSpanTreeMap[rootSpanID].childSpans = append(rootSpanTreeMap[rootSpanID].childSpans, span)
+	for _, orphanSpan := range orphanSpans {
+		if rootSpanID, ok := idMap[orphanSpan.ParentSpanID]; ok {
+			idMap[orphanSpan.SpanID] = rootSpanID
+			rootSpanTreeMap[rootSpanID].childSpans = append(rootSpanTreeMap[rootSpanID].childSpans, orphanSpan)
 		} else {
-			newOrphanSpans = append(newOrphanSpans, orphan)
+			newOrphanSpans = append(newOrphanSpans, orphanSpan)
 		}
 	}
 
 	return classifyAsOrphanSpans(newOrphanSpans, len(orphanSpans), idMap, rootSpanTreeMap)
 }
 
-func convertToSentrySpan(span pdata.Span) (sentrySpan *sentry.Span) {
+func convertToSentrySpan(span pdata.Span, library pdata.InstrumentationLibrary, resourceTags map[string]string) (sentrySpan *sentry.Span) {
 	if span.IsNil() {
 		return nil
 	}
@@ -239,6 +206,11 @@ func convertToSentrySpan(span pdata.Span) (sentrySpan *sentry.Span) {
 	op, description := generateSpanDescriptors(name, attributes, spanKind)
 	tags := generateTagsFromAttributes(attributes)
 
+	// Transactions should store resource tags
+	for k, v := range resourceTags {
+		tags[fmt.Sprintf("resource_tag_%s", k)] = v
+	}
+
 	status, message := statusFromSpanStatus(span.Status())
 
 	if message != "" {
@@ -247,6 +219,11 @@ func convertToSentrySpan(span pdata.Span) (sentrySpan *sentry.Span) {
 
 	if spanKind != pdata.SpanKindUNSPECIFIED {
 		tags["span_kind"] = spanKind.String()
+	}
+
+	if !library.IsNil() {
+		tags["library_name"] = library.Name()
+		tags["library_version"] = library.Version()
 	}
 
 	sentrySpan = &sentry.Span{

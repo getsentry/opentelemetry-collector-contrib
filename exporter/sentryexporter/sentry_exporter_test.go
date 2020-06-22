@@ -31,19 +31,17 @@ func generateEmptyRootSpanTreeMap(rootSpans ...*sentry.Span) map[string]*rootSpa
 	for _, span := range rootSpans {
 		rootSpanTreeMap[span.SpanID] = &rootSpanTree{
 			rootSpan:   span,
-			childSpans: make([]*sentry.Span, 0),
+			childSpans: nil,
 		}
 	}
 	return rootSpanTreeMap
 }
 
-func generateOrphanSpansFromSpans(spans ...*sentry.Span) []*spanCollection {
-	orphanSpans := make([]*spanCollection, 0, len(spans))
+func generateOrphanSpansFromSpans(spans ...*sentry.Span) []*sentry.Span {
+	orphanSpans := make([]*sentry.Span, 0, len(spans))
 
 	for _, span := range spans {
-		orphanSpans = append(orphanSpans, &spanCollection{
-			span: span,
-		})
+		orphanSpans = append(orphanSpans, span)
 	}
 
 	return orphanSpans
@@ -53,7 +51,7 @@ func TestSpanToSentrySpan(t *testing.T) {
 	t.Run("with nil span", func(t *testing.T) {
 		testSpan := pdata.NewSpan()
 
-		sentrySpan := convertToSentrySpan(testSpan)
+		sentrySpan := convertToSentrySpan(testSpan, pdata.NewInstrumentationLibrary(), map[string]string{})
 		assert.Nil(t, sentrySpan)
 	})
 
@@ -64,9 +62,9 @@ func TestSpanToSentrySpan(t *testing.T) {
 		var parentSpanID []byte
 		testSpan.SetParentSpanID(parentSpanID)
 
-		sentrySpan := convertToSentrySpan(testSpan)
+		sentrySpan := convertToSentrySpan(testSpan, pdata.NewInstrumentationLibrary(), map[string]string{})
 		assert.NotNil(t, sentrySpan)
-		assert.True(t, IsRootSpan(sentrySpan))
+		assert.True(t, isRootSpan(sentrySpan))
 	})
 
 	t.Run("with root span and 0 byte slice", func(t *testing.T) {
@@ -76,9 +74,9 @@ func TestSpanToSentrySpan(t *testing.T) {
 		parentSpanID := []byte{0, 0, 0, 0, 0, 0, 0, 0}
 		testSpan.SetParentSpanID(parentSpanID)
 
-		sentrySpan := convertToSentrySpan(testSpan)
+		sentrySpan := convertToSentrySpan(testSpan, pdata.NewInstrumentationLibrary(), map[string]string{})
 		assert.NotNil(t, sentrySpan)
-		assert.True(t, IsRootSpan(sentrySpan))
+		assert.True(t, isRootSpan(sentrySpan))
 	})
 
 	t.Run("with full span", func(t *testing.T) {
@@ -108,10 +106,20 @@ func TestSpanToSentrySpan(t *testing.T) {
 		testSpan.Status().SetMessage(statusMessage)
 		testSpan.Status().SetCode(pdata.StatusCode(otlptrace.Status_Ok))
 
-		actual := convertToSentrySpan(testSpan)
+		library := pdata.NewInstrumentationLibrary()
+		library.InitEmpty()
+		library.SetName("otel-python")
+		library.SetVersion("1.4.3")
+
+		resourceTags := map[string]string{
+			"aws_instance": "ca-central-1",
+			"unique_id":    "abcd1234",
+		}
+
+		actual := convertToSentrySpan(testSpan, library, resourceTags)
 
 		assert.NotNil(t, actual)
-		assert.False(t, IsRootSpan(actual))
+		assert.False(t, isRootSpan(actual))
 
 		expected := &sentry.Span{
 			TraceID:      "01020304050607080807060504030201",
@@ -120,9 +128,13 @@ func TestSpanToSentrySpan(t *testing.T) {
 			Description:  name,
 			Op:           "",
 			Tags: map[string]string{
-				"key":            "value",
-				"span_kind":      pdata.SpanKindCLIENT.String(),
-				"status_message": statusMessage,
+				"key":                       "value",
+				"library_name":              "otel-python",
+				"library_version":           "1.4.3",
+				"resource_tag_aws_instance": "ca-central-1",
+				"resource_tag_unique_id":    "abcd1234",
+				"span_kind":                 pdata.SpanKindCLIENT.String(),
+				"status_message":            statusMessage,
 			},
 			StartTimestamp: unixNanoToTime(startTime),
 			EndTimestamp:   unixNanoToTime(endTime),
@@ -309,9 +321,9 @@ type ClassifyOrphanSpanTestCase struct {
 	// input
 	idMap           map[string]string
 	rootSpanTreeMap map[string]*rootSpanTree
-	spans           []*spanCollection
+	spans           []*sentry.Span
 	// output
-	assertion func(t *testing.T, orphanSpans []*spanCollection)
+	assertion func(t *testing.T, orphanSpans []*sentry.Span)
 }
 
 func TestClassifyOrphanSpans(t *testing.T) {
@@ -321,7 +333,7 @@ func TestClassifyOrphanSpans(t *testing.T) {
 			idMap:           make(map[string]string),
 			rootSpanTreeMap: generateEmptyRootSpanTreeMap(),
 			spans:           generateOrphanSpansFromSpans(childSpan1, childSpan2),
-			assertion: func(t *testing.T, orphanSpans []*spanCollection) {
+			assertion: func(t *testing.T, orphanSpans []*sentry.Span) {
 				assert.Len(t, orphanSpans, 2)
 			},
 		},
@@ -334,7 +346,7 @@ func TestClassifyOrphanSpans(t *testing.T) {
 			}(),
 			rootSpanTreeMap: generateEmptyRootSpanTreeMap(rootSpan1),
 			spans:           generateOrphanSpansFromSpans(childChildSpan1, childSpan1, childSpan2),
-			assertion: func(t *testing.T, orphanSpans []*spanCollection) {
+			assertion: func(t *testing.T, orphanSpans []*sentry.Span) {
 				assert.Len(t, orphanSpans, 0)
 			},
 		},
@@ -347,9 +359,9 @@ func TestClassifyOrphanSpans(t *testing.T) {
 			}(),
 			rootSpanTreeMap: generateEmptyRootSpanTreeMap(rootSpan1),
 			spans:           generateOrphanSpansFromSpans(childChildSpan1, childSpan1, childSpan2, orphanSpan1),
-			assertion: func(t *testing.T, orphanSpans []*spanCollection) {
+			assertion: func(t *testing.T, orphanSpans []*sentry.Span) {
 				assert.Len(t, orphanSpans, 1)
-				assert.Equal(t, orphanSpan1, orphanSpans[0].span)
+				assert.Equal(t, orphanSpan1, orphanSpans[0])
 			},
 		},
 		{
@@ -362,7 +374,7 @@ func TestClassifyOrphanSpans(t *testing.T) {
 			}(),
 			rootSpanTreeMap: generateEmptyRootSpanTreeMap(rootSpan1, rootSpan2),
 			spans:           generateOrphanSpansFromSpans(childChildSpan1, childSpan1, root2childSpan, childSpan2),
-			assertion: func(t *testing.T, orphanSpans []*spanCollection) {
+			assertion: func(t *testing.T, orphanSpans []*sentry.Span) {
 				assert.Len(t, orphanSpans, 0)
 			},
 		},

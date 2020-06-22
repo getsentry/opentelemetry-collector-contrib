@@ -16,9 +16,9 @@ package sentryexporter
 
 import "github.com/getsentry/sentry-go"
 
-// IsRootSpan determines if a span is a root span.
+// isRootSpan determines if a span is a root span.
 // If parent span id is empty, then the span is a root span.
-func IsRootSpan(s *sentry.Span) bool {
+func isRootSpan(s *sentry.Span) bool {
 	return s.ParentSpanID == ""
 }
 
@@ -33,11 +33,6 @@ func transactionFromTree(rtree *rootSpanTree) *sentry.Event {
 		Status:      rtree.rootSpan.Status,
 	}
 
-	transaction.Contexts["library"] = map[string]string{
-		"name":    rtree.libraryName,
-		"version": rtree.libraryVersion,
-	}
-
 	transaction.Type = "transaction"
 
 	transaction.Sdk.Name = otelSentryExporterName
@@ -48,11 +43,6 @@ func transactionFromTree(rtree *rootSpanTree) *sentry.Event {
 	transaction.Tags = rtree.rootSpan.Tags
 	transaction.Timestamp = rtree.rootSpan.EndTimestamp
 	transaction.Transaction = rtree.rootSpan.Description
-
-	// Transactions should store resource tags
-	for k, v := range rtree.resourceTags {
-		transaction.Tags[k] = v
-	}
 
 	return transaction
 }
