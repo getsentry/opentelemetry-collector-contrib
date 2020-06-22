@@ -7,7 +7,8 @@ processors:
 exporters:
   sentry:
   sentry/2:
-    DSN: https://key@host/path/42
+    buffer_size: 50
+    dsn: https://key@host/path/42
 
 service:
   pipelines:

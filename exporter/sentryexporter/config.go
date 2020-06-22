@@ -21,4 +21,6 @@ type Config struct {
 	configmodels.ExporterSettings `mapstructure:",squash"` // squash ensures fields are correctly decoded in embedded struct.
 	// DSN to report transaction to Sentry. If the DSN is not set, no trace will be sent to Sentry.
 	DSN string `mapstructure:"dsn"`
+	// Buffer size for Sentry transport. Defaults to 30.
+	BufferSize int `mapstructure:"buffer_size"`
 }

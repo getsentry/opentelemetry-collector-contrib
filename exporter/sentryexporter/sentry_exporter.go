@@ -139,11 +139,25 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 
 	transactions := generateTransactions(rootSpanTreeMap, orphanSpans)
 
-	for _, t := range transactions {
-		s.transport.SendEvent(t)
-	}
+	sendTransactions(s.transport, transactions)
 
 	return 0, nil
+}
+
+// sendTransactions uses a Sentry transport to send transaction events to Sentry
+func sendTransactions(transport *sentry.HTTPTransport, transactions []*sentry.Event) {
+	bufferCounter := 0
+	for _, t := range transactions {
+		// We should flush all events when we send transactions equal to the transport
+		// buffer size so we don't drop transactions.
+		if bufferCounter == transport.BufferSize {
+			transport.Flush(time.Second)
+			bufferCounter = 0
+		}
+
+		transport.SendEvent(t)
+		bufferCounter++
+	}
 }
 
 // generateTransactions creates a set of Sentry Transaction event from a set of root span trees and orphan spans.
@@ -206,7 +220,6 @@ func convertToSentrySpan(span pdata.Span, library pdata.InstrumentationLibrary, 
 	op, description := generateSpanDescriptors(name, attributes, spanKind)
 	tags := generateTagsFromAttributes(attributes)
 
-	// Transactions should store resource tags
 	for k, v := range resourceTags {
 		tags[fmt.Sprintf("resource_tag_%s", k)] = v
 	}
@@ -349,6 +362,8 @@ func CreateSentryExporter(config *Config) (component.TraceExporter, error) {
 	transport.Configure(sentry.ClientOptions{
 		Dsn: config.DSN,
 	})
+
+	transport.BufferSize = config.BufferSize
 
 	s := &SentryExporter{
 		transport: transport,
