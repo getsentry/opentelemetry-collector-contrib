@@ -30,8 +30,7 @@ func generateEmptyRootSpanTreeMap(rootSpans ...*sentry.Span) map[string]*rootSpa
 	rootSpanTreeMap := make(map[string]*rootSpanTree)
 	for _, span := range rootSpans {
 		rootSpanTreeMap[span.SpanID] = &rootSpanTree{
-			rootSpan:   span,
-			childSpans: nil,
+			rootSpan: span,
 		}
 	}
 	return rootSpanTreeMap

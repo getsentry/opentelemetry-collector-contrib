@@ -7,7 +7,6 @@ processors:
 exporters:
   sentry:
   sentry/2:
-    buffer_size: 50
     dsn: https://key@host/path/42
 
 service:

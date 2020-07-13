@@ -69,7 +69,8 @@ type rootSpanTree struct {
 }
 
 func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (droppedSpans int, err error) {
-	// For a ResourceSpan, InstrumentationLibrarySpan and Span struct if IsNil() is "true", all other methods will cause a runtime error.
+	// For a ResourceSpan, InstrumentationLibrarySpan and Span struct if IsNil()
+	// is "true", all other methods will cause a runtime error.
 	resourceSpans := td.ResourceSpans()
 	if resourceSpans.Len() == 0 {
 		return 0, nil
@@ -109,15 +110,14 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 				sentrySpan := convertToSentrySpan(otelSpan, library, resourceTags)
 
 				// If a span is a root span, we consider it the start of a Sentry transaction.
-				// We should then keep create a new root span tree for that root span, and
+				// We should then create a new root span tree for that root span, and
 				// keep track of that transaction.
 				//
 				// If the span is not a root span, we can either associate it with an existing
 				// span tree, or we can temporarily consider it an orphan span.
 				if isRootSpan(sentrySpan) {
 					rootSpanTreeMap[sentrySpan.SpanID] = &rootSpanTree{
-						rootSpan:   sentrySpan,
-						childSpans: nil,
+						rootSpan: sentrySpan,
 					}
 
 					idMap[sentrySpan.SpanID] = sentrySpan.SpanID
@@ -171,8 +171,7 @@ func generateTransactions(rootSpanTreeMap map[string]*rootSpanTree, orphanSpans 
 
 	for _, orphanSpan := range orphanSpans {
 		rtree := &rootSpanTree{
-			rootSpan:   orphanSpan,
-			childSpans: nil,
+			rootSpan: orphanSpan,
 		}
 		transaction := transactionFromTree(rtree)
 		transactions = append(transactions, transaction)
@@ -363,8 +362,6 @@ func CreateSentryExporter(config *Config) (component.TraceExporter, error) {
 		Dsn: config.DSN,
 	})
 
-	transport.BufferSize = config.BufferSize
-
 	s := &SentryExporter{
 		transport: transport,
 	}
@@ -389,4 +386,35 @@ func CreateSentryExporter(config *Config) (component.TraceExporter, error) {
 			return nil
 		}),
 	)
+}
+
+// isRootSpan determines if a span is a root span.
+// If parent span id is empty, then the span is a root span.
+func isRootSpan(s *sentry.Span) bool {
+	return s.ParentSpanID == ""
+}
+
+func transactionFromTree(rtree *rootSpanTree) *sentry.Event {
+	transaction := sentry.NewEvent()
+
+	transaction.Contexts["trace"] = sentry.TraceContext{
+		TraceID:     rtree.rootSpan.TraceID,
+		SpanID:      rtree.rootSpan.SpanID,
+		Op:          rtree.rootSpan.Op,
+		Description: rtree.rootSpan.Description,
+		Status:      rtree.rootSpan.Status,
+	}
+
+	transaction.Type = "transaction"
+
+	transaction.Sdk.Name = otelSentryExporterName
+	transaction.Sdk.Version = otelSentryExporterVersion
+
+	transaction.Spans = rtree.childSpans
+	transaction.StartTimestamp = rtree.rootSpan.StartTimestamp
+	transaction.Tags = rtree.rootSpan.Tags
+	transaction.Timestamp = rtree.rootSpan.EndTimestamp
+	transaction.Transaction = rtree.rootSpan.Description
+
+	return transaction
 }

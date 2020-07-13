@@ -45,7 +45,6 @@ func TestLoadConfig(t *testing.T) {
 			NameVal: "sentry/2",
 			TypeVal: "sentry",
 		},
-		DSN:        "https://key@host/path/42",
-		BufferSize: 50,
+		DSN: "https://key@host/path/42",
 	})
 }

@@ -93,7 +93,6 @@ var (
 		ParentSpanID:   "1930bb5cc45c4003",
 		Description:    "A random span",
 		Op:             "",
-		Tags:           nil,
 		StartTimestamp: unixNanoToTime(3),
 		EndTimestamp:   unixNanoToTime(6),
 		Status:         "ok",
