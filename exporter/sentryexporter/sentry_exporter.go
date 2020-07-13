@@ -208,7 +208,7 @@ func convertToSentrySpan(span pdata.Span, library pdata.InstrumentationLibrary, 
 	tags := generateTagsFromAttributes(attributes)
 
 	for k, v := range resourceTags {
-		tags[fmt.Sprintf("resource_tag_%s", k)] = v
+		tags[k] = v
 	}
 
 	status, message := statusFromSpanStatus(span.Status())
