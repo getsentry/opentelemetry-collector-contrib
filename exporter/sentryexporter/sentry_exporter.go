@@ -62,12 +62,8 @@ type SentryExporter struct {
 	transport *sentry.HTTPTransport
 }
 
-// rootSpanTree stores a root span and it's child spans.
-type rootSpanTree struct {
-	rootSpan   *sentry.Span
-	childSpans []*sentry.Span
-}
-
+// pushTraceData takes an incoming OpenTelemetry trace, converts them into Sentry spans and transactions
+// and sends them using Sentry's transport.
 func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (droppedSpans int, err error) {
 	// For a ResourceSpan, InstrumentationLibrarySpan and Span struct if IsNil()
 	// is "true", all other methods will cause a runtime error.
@@ -80,8 +76,8 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 
 	// Maps all child span ids to their root span.
 	idMap := make(map[string]string)
-	// Maps root span id to a root span tree.
-	rootSpanTreeMap := make(map[string]*rootSpanTree)
+	// Maps root span id to a transaction.
+	transactionMap := make(map[string]*sentry.Event)
 
 	for i := 0; i < resourceSpans.Len(); i++ {
 		rs := resourceSpans.At(i)
@@ -110,21 +106,17 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 				sentrySpan := convertToSentrySpan(otelSpan, library, resourceTags)
 
 				// If a span is a root span, we consider it the start of a Sentry transaction.
-				// We should then create a new root span tree for that root span, and
-				// keep track of that transaction.
+				// We should then create a new transaction for that root span, and keep track of it.
 				//
 				// If the span is not a root span, we can either associate it with an existing
-				// span tree, or we can temporarily consider it an orphan span.
+				// transaction, or we can temporarily consider it an orphan span.
 				if isRootSpan(sentrySpan) {
-					rootSpanTreeMap[sentrySpan.SpanID] = &rootSpanTree{
-						rootSpan: sentrySpan,
-					}
-
+					transactionMap[sentrySpan.SpanID] = transactionFromSpan(sentrySpan)
 					idMap[sentrySpan.SpanID] = sentrySpan.SpanID
 				} else {
 					if rootSpanID, ok := idMap[sentrySpan.ParentSpanID]; ok {
 						idMap[sentrySpan.SpanID] = rootSpanID
-						rootSpanTreeMap[rootSpanID].childSpans = append(rootSpanTreeMap[rootSpanID].childSpans, sentrySpan)
+						transactionMap[rootSpanID].Spans = append(transactionMap[rootSpanID].Spans, sentrySpan)
 					} else {
 						maybeOrphanSpans = append(maybeOrphanSpans, sentrySpan)
 					}
@@ -134,10 +126,10 @@ func (s *SentryExporter) pushTraceData(ctx context.Context, td pdata.Traces) (dr
 	}
 
 	// After the first pass through, we can't necessarily make the assumption we have not associated all
-	// the spans with an span tree. As such, we must classify the remaining spans as orphans or not.
-	orphanSpans := classifyAsOrphanSpans(maybeOrphanSpans, len(maybeOrphanSpans)+1, idMap, rootSpanTreeMap)
+	// the spans with a transaction. As such, we must classify the remaining spans as orphans or not.
+	orphanSpans := classifyAsOrphanSpans(maybeOrphanSpans, len(maybeOrphanSpans)+1, idMap, transactionMap)
 
-	transactions := generateTransactions(rootSpanTreeMap, orphanSpans)
+	transactions := generateTransactions(transactionMap, orphanSpans)
 
 	sendTransactions(s.transport, transactions)
 
@@ -160,30 +152,26 @@ func sendTransactions(transport *sentry.HTTPTransport, transactions []*sentry.Ev
 	}
 }
 
-// generateTransactions creates a set of Sentry Transaction event from a set of root span trees and orphan spans.
-func generateTransactions(rootSpanTreeMap map[string]*rootSpanTree, orphanSpans []*sentry.Span) []*sentry.Event {
-	transactions := make([]*sentry.Event, 0, len(rootSpanTreeMap)+len(orphanSpans))
+// generateTransactions creates a set of Sentry transactions from a transaction map and orphan spans.
+func generateTransactions(transactionMap map[string]*sentry.Event, orphanSpans []*sentry.Span) []*sentry.Event {
+	transactions := make([]*sentry.Event, 0, len(transactionMap)+len(orphanSpans))
 
-	for _, rtree := range rootSpanTreeMap {
-		transaction := transactionFromTree(rtree)
-		transactions = append(transactions, transaction)
+	for _, t := range transactionMap {
+		transactions = append(transactions, t)
 	}
 
 	for _, orphanSpan := range orphanSpans {
-		rtree := &rootSpanTree{
-			rootSpan: orphanSpan,
-		}
-		transaction := transactionFromTree(rtree)
-		transactions = append(transactions, transaction)
+		t := transactionFromSpan(orphanSpan)
+		transactions = append(transactions, t)
 	}
 
 	return transactions
 }
 
 // classifyAsOrphanSpans iterates through a list of possible orphan spans and tries to associate them
-// with a root span tree. As the order of the spans is not guaranteed, we have to recursively call
-// classifyAsOrphanSpans to make sure that we did not leave any spans out of their root span tree.
-func classifyAsOrphanSpans(orphanSpans []*sentry.Span, prevLength int, idMap map[string]string, rootSpanTreeMap map[string]*rootSpanTree) []*sentry.Span {
+// with a transaction. As the order of the spans is not guaranteed, we have to recursively call
+// classifyAsOrphanSpans to make sure that we did not leave any spans out of the transaction they belong to.
+func classifyAsOrphanSpans(orphanSpans []*sentry.Span, prevLength int, idMap map[string]string, transactionMap map[string]*sentry.Event) []*sentry.Span {
 	if len(orphanSpans) == 0 || len(orphanSpans) == prevLength {
 		return orphanSpans
 	}
@@ -193,13 +181,13 @@ func classifyAsOrphanSpans(orphanSpans []*sentry.Span, prevLength int, idMap map
 	for _, orphanSpan := range orphanSpans {
 		if rootSpanID, ok := idMap[orphanSpan.ParentSpanID]; ok {
 			idMap[orphanSpan.SpanID] = rootSpanID
-			rootSpanTreeMap[rootSpanID].childSpans = append(rootSpanTreeMap[rootSpanID].childSpans, orphanSpan)
+			transactionMap[rootSpanID].Spans = append(transactionMap[rootSpanID].Spans, orphanSpan)
 		} else {
 			newOrphanSpans = append(newOrphanSpans, orphanSpan)
 		}
 	}
 
-	return classifyAsOrphanSpans(newOrphanSpans, len(orphanSpans), idMap, rootSpanTreeMap)
+	return classifyAsOrphanSpans(newOrphanSpans, len(orphanSpans), idMap, transactionMap)
 }
 
 func convertToSentrySpan(span pdata.Span, library pdata.InstrumentationLibrary, resourceTags map[string]string) (sentrySpan *sentry.Span) {
@@ -355,6 +343,36 @@ func statusFromSpanStatus(spanStatus pdata.SpanStatus) (status string, message s
 	return canonicalCodes[code], spanStatus.Message()
 }
 
+// isRootSpan determines if a span is a root span.
+// If parent span id is empty, then the span is a root span.
+func isRootSpan(s *sentry.Span) bool {
+	return s.ParentSpanID == ""
+}
+
+// transactionFromSpan converts a span to a transaction.
+func transactionFromSpan(span *sentry.Span) *sentry.Event {
+	transaction := sentry.NewEvent()
+
+	transaction.Contexts["trace"] = sentry.TraceContext{
+		TraceID: span.TraceID,
+		SpanID:  span.SpanID,
+		Op:      span.Op,
+		Status:  span.Status,
+	}
+
+	transaction.Type = "transaction"
+
+	transaction.Sdk.Name = otelSentryExporterName
+	transaction.Sdk.Version = otelSentryExporterVersion
+
+	transaction.StartTimestamp = span.StartTimestamp
+	transaction.Tags = span.Tags
+	transaction.Timestamp = span.EndTimestamp
+	transaction.Transaction = span.Description
+
+	return transaction
+}
+
 // CreateSentryExporter returns a new Sentry Exporter.
 func CreateSentryExporter(config *Config) (component.TraceExporter, error) {
 	transport := sentry.NewHTTPTransport()
@@ -386,35 +404,4 @@ func CreateSentryExporter(config *Config) (component.TraceExporter, error) {
 			return nil
 		}),
 	)
-}
-
-// isRootSpan determines if a span is a root span.
-// If parent span id is empty, then the span is a root span.
-func isRootSpan(s *sentry.Span) bool {
-	return s.ParentSpanID == ""
-}
-
-func transactionFromTree(rtree *rootSpanTree) *sentry.Event {
-	transaction := sentry.NewEvent()
-
-	transaction.Contexts["trace"] = sentry.TraceContext{
-		TraceID:     rtree.rootSpan.TraceID,
-		SpanID:      rtree.rootSpan.SpanID,
-		Op:          rtree.rootSpan.Op,
-		Description: rtree.rootSpan.Description,
-		Status:      rtree.rootSpan.Status,
-	}
-
-	transaction.Type = "transaction"
-
-	transaction.Sdk.Name = otelSentryExporterName
-	transaction.Sdk.Version = otelSentryExporterVersion
-
-	transaction.Spans = rtree.childSpans
-	transaction.StartTimestamp = rtree.rootSpan.StartTimestamp
-	transaction.Tags = rtree.rootSpan.Tags
-	transaction.Timestamp = rtree.rootSpan.EndTimestamp
-	transaction.Transaction = rtree.rootSpan.Description
-
-	return transaction
 }

@@ -26,14 +26,12 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func generateEmptyRootSpanTreeMap(rootSpans ...*sentry.Span) map[string]*rootSpanTree {
-	rootSpanTreeMap := make(map[string]*rootSpanTree)
-	for _, span := range rootSpans {
-		rootSpanTreeMap[span.SpanID] = &rootSpanTree{
-			rootSpan: span,
-		}
+func generateEmptyTransactionMap(spans ...*sentry.Span) map[string]*sentry.Event {
+	transactionMap := make(map[string]*sentry.Event)
+	for _, span := range spans {
+		transactionMap[span.SpanID] = transactionFromSpan(span)
 	}
-	return rootSpanTreeMap
+	return transactionMap
 }
 
 func generateOrphanSpansFromSpans(spans ...*sentry.Span) []*sentry.Span {
@@ -318,9 +316,9 @@ func TestStatusFromSpanStatus(t *testing.T) {
 type ClassifyOrphanSpanTestCase struct {
 	testName string
 	// input
-	idMap           map[string]string
-	rootSpanTreeMap map[string]*rootSpanTree
-	spans           []*sentry.Span
+	idMap          map[string]string
+	transactionMap map[string]*sentry.Event
+	spans          []*sentry.Span
 	// output
 	assertion func(t *testing.T, orphanSpans []*sentry.Span)
 }
@@ -328,10 +326,10 @@ type ClassifyOrphanSpanTestCase struct {
 func TestClassifyOrphanSpans(t *testing.T) {
 	testCases := []ClassifyOrphanSpanTestCase{
 		{
-			testName:        "with no root spans",
-			idMap:           make(map[string]string),
-			rootSpanTreeMap: generateEmptyRootSpanTreeMap(),
-			spans:           generateOrphanSpansFromSpans(childSpan1, childSpan2),
+			testName:       "with no root spans",
+			idMap:          make(map[string]string),
+			transactionMap: generateEmptyTransactionMap(),
+			spans:          generateOrphanSpansFromSpans(childSpan1, childSpan2),
 			assertion: func(t *testing.T, orphanSpans []*sentry.Span) {
 				assert.Len(t, orphanSpans, 2)
 			},
@@ -343,8 +341,8 @@ func TestClassifyOrphanSpans(t *testing.T) {
 				idMap[rootSpan1.SpanID] = rootSpan1.SpanID
 				return idMap
 			}(),
-			rootSpanTreeMap: generateEmptyRootSpanTreeMap(rootSpan1),
-			spans:           generateOrphanSpansFromSpans(childChildSpan1, childSpan1, childSpan2),
+			transactionMap: generateEmptyTransactionMap(rootSpan1),
+			spans:          generateOrphanSpansFromSpans(childChildSpan1, childSpan1, childSpan2),
 			assertion: func(t *testing.T, orphanSpans []*sentry.Span) {
 				assert.Len(t, orphanSpans, 0)
 			},
@@ -356,8 +354,8 @@ func TestClassifyOrphanSpans(t *testing.T) {
 				idMap[rootSpan1.SpanID] = rootSpan1.SpanID
 				return idMap
 			}(),
-			rootSpanTreeMap: generateEmptyRootSpanTreeMap(rootSpan1),
-			spans:           generateOrphanSpansFromSpans(childChildSpan1, childSpan1, childSpan2, orphanSpan1),
+			transactionMap: generateEmptyTransactionMap(rootSpan1),
+			spans:          generateOrphanSpansFromSpans(childChildSpan1, childSpan1, childSpan2, orphanSpan1),
 			assertion: func(t *testing.T, orphanSpans []*sentry.Span) {
 				assert.Len(t, orphanSpans, 1)
 				assert.Equal(t, orphanSpan1, orphanSpans[0])
@@ -371,8 +369,8 @@ func TestClassifyOrphanSpans(t *testing.T) {
 				idMap[rootSpan2.SpanID] = rootSpan2.SpanID
 				return idMap
 			}(),
-			rootSpanTreeMap: generateEmptyRootSpanTreeMap(rootSpan1, rootSpan2),
-			spans:           generateOrphanSpansFromSpans(childChildSpan1, childSpan1, root2childSpan, childSpan2),
+			transactionMap: generateEmptyTransactionMap(rootSpan1, rootSpan2),
+			spans:          generateOrphanSpansFromSpans(childChildSpan1, childSpan1, root2childSpan, childSpan2),
 			assertion: func(t *testing.T, orphanSpans []*sentry.Span) {
 				assert.Len(t, orphanSpans, 0)
 			},
@@ -381,17 +379,17 @@ func TestClassifyOrphanSpans(t *testing.T) {
 
 	for _, test := range testCases {
 		t.Run(test.testName, func(t *testing.T) {
-			orphanSpans := classifyAsOrphanSpans(test.spans, len(test.spans)+1, test.idMap, test.rootSpanTreeMap)
+			orphanSpans := classifyAsOrphanSpans(test.spans, len(test.spans)+1, test.idMap, test.transactionMap)
 			test.assertion(t, orphanSpans)
 		})
 	}
 }
 
 func TestGenerateTransactions(t *testing.T) {
-	rootSpanTreeMap := generateEmptyRootSpanTreeMap(rootSpan1, rootSpan2)
+	transactionMap := generateEmptyTransactionMap(rootSpan1, rootSpan2)
 	orphanSpans := generateOrphanSpansFromSpans(orphanSpan1, childSpan1)
 
-	transactions := generateTransactions(rootSpanTreeMap, orphanSpans)
+	transactions := generateTransactions(transactionMap, orphanSpans)
 
 	assert.Len(t, transactions, 4)
 }

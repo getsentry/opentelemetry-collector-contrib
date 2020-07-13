@@ -127,12 +127,12 @@ var (
 		Status:         "ok",
 	}
 
-	transaction1 = transactionFromTree(&rootSpanTree{
-		rootSpan:   rootSpan1,
-		childSpans: []*sentry.Span{childSpan1, childChildSpan1, childSpan2},
-	})
-	transaction2 = transactionFromTree(&rootSpanTree{
-		rootSpan:   rootSpan2,
-		childSpans: []*sentry.Span{root2childSpan},
-	})
+	transaction1 = getTestTransaction(rootSpan1, []*sentry.Span{childSpan1, childChildSpan1, childSpan2})
+	transaction2 = getTestTransaction(rootSpan2, []*sentry.Span{root2childSpan})
 )
+
+func getTestTransaction(rootSpan *sentry.Span, childSpans []*sentry.Span) *sentry.Event {
+	transaction := transactionFromSpan(rootSpan)
+	transaction.Spans = childSpans
+	return transaction
+}
