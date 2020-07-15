@@ -15,3 +15,5 @@ exporters:
   sentry:
     dsn: https://key@host/path/42
 ```
+
+See the docs folder for more details on how this transformation is working.
