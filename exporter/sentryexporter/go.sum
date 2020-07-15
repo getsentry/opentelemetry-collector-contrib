@@ -226,6 +226,8 @@ github.com/fsnotify/fsnotify v1.4.9/go.mod h1:znqG4EE+3YCdAaPaxE2ZRY/06pZUdp0tY4
 github.com/gavv/httpexpect v2.0.0+incompatible/go.mod h1:x+9tiU1YnrOvnB725RkpoLv1M62hOWzwo5OXotisrKc=
 github.com/getsentry/sentry-go v0.6.2-0.20200604090419-1d0b5e638037 h1:Ghm2moamdakLDV30/NjtjSFdEDLYo+y1KUWL9yHmwEI=
 github.com/getsentry/sentry-go v0.6.2-0.20200604090419-1d0b5e638037/go.mod h1:0yZBuzSvbZwBnvaF9VwZIMen3kXscY8/uasKtAX1qG8=
+github.com/getsentry/sentry-go v0.6.2-0.20200707113342-e7c66ce62664 h1:Ud+zBYmN4QNYeR2yCUH0ofd1UFqcYk+4OfDl61RfAh4=
+github.com/getsentry/sentry-go v0.6.2-0.20200707113342-e7c66ce62664/go.mod h1:pLFpD2Y5RHIKF9Bw3KH6/68DeN2K/XBJd8awjdPnUwg=
 github.com/ghodss/yaml v0.0.0-20150909031657-73d445a93680/go.mod h1:4dBDuWmgqj2HViK6kFavaiC9ZROes6MMH2rRYeMEF04=
 github.com/ghodss/yaml v1.0.0/go.mod h1:4dBDuWmgqj2HViK6kFavaiC9ZROes6MMH2rRYeMEF04=
 github.com/gin-contrib/sse v0.0.0-20190301062529-5545eab6dad3/go.mod h1:VJ0WA2NBN22VlZ2dKZQPAPnyWw5XTlK1KymzLKsr59s=
