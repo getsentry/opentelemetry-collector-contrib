@@ -17,7 +17,7 @@ package sentryexporter
 import (
 	"time"
 
-	"github.com/open-telemetry/opentelemetry-collector/consumer/pdata"
+	"go.opentelemetry.io/collector/consumer/pdata"
 )
 
 // unixNanoToTime converts UNIX Epoch time in nanoseconds

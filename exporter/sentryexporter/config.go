@@ -14,7 +14,7 @@
 
 package sentryexporter
 
-import "github.com/open-telemetry/opentelemetry-collector/config/configmodels"
+import "go.opentelemetry.io/collector/config/configmodels"
 
 // Config defines the configuration for the Sentry Exporter.
 type Config struct {
