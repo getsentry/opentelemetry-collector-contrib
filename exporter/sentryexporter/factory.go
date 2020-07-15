@@ -43,7 +43,6 @@ func (f *Factory) CreateDefaultConfig() configmodels.Exporter {
 			TypeVal: typeStr,
 			NameVal: typeStr,
 		},
-		DSN: "",
 	}
 }
 
