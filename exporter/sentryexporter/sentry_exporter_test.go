@@ -17,6 +17,7 @@ package sentryexporter
 import (
 	"testing"
 
+	"github.com/getsentry/sentry-go"
 	"github.com/google/go-cmp/cmp"
 	otlptrace "github.com/open-telemetry/opentelemetry-proto/gen/go/trace/v1"
 
@@ -25,11 +26,29 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func generateEmptyTransactionMap(spans ...*sentry.Span) map[string]*sentry.Event {
+	transactionMap := make(map[string]*sentry.Event)
+	for _, span := range spans {
+		transactionMap[span.SpanID] = transactionFromSpan(span)
+	}
+	return transactionMap
+}
+
+func generateOrphanSpansFromSpans(spans ...*sentry.Span) []*sentry.Span {
+	orphanSpans := make([]*sentry.Span, 0, len(spans))
+
+	for _, span := range spans {
+		orphanSpans = append(orphanSpans, span)
+	}
+
+	return orphanSpans
+}
+
 func TestSpanToSentrySpan(t *testing.T) {
 	t.Run("with nil span", func(t *testing.T) {
 		testSpan := pdata.NewSpan()
 
-		sentrySpan := convertToSentrySpan(testSpan)
+		sentrySpan := convertToSentrySpan(testSpan, pdata.NewInstrumentationLibrary(), map[string]string{})
 		assert.Nil(t, sentrySpan)
 	})
 
@@ -40,9 +59,9 @@ func TestSpanToSentrySpan(t *testing.T) {
 		var parentSpanID []byte
 		testSpan.SetParentSpanID(parentSpanID)
 
-		sentrySpan := convertToSentrySpan(testSpan)
+		sentrySpan := convertToSentrySpan(testSpan, pdata.NewInstrumentationLibrary(), map[string]string{})
 		assert.NotNil(t, sentrySpan)
-		assert.True(t, sentrySpan.IsRootSpan())
+		assert.True(t, isRootSpan(sentrySpan))
 	})
 
 	t.Run("with root span and 0 byte slice", func(t *testing.T) {
@@ -52,9 +71,9 @@ func TestSpanToSentrySpan(t *testing.T) {
 		parentSpanID := []byte{0, 0, 0, 0, 0, 0, 0, 0}
 		testSpan.SetParentSpanID(parentSpanID)
 
-		sentrySpan := convertToSentrySpan(testSpan)
+		sentrySpan := convertToSentrySpan(testSpan, pdata.NewInstrumentationLibrary(), map[string]string{})
 		assert.NotNil(t, sentrySpan)
-		assert.True(t, sentrySpan.IsRootSpan())
+		assert.True(t, isRootSpan(sentrySpan))
 	})
 
 	t.Run("with full span", func(t *testing.T) {
@@ -84,21 +103,35 @@ func TestSpanToSentrySpan(t *testing.T) {
 		testSpan.Status().SetMessage(statusMessage)
 		testSpan.Status().SetCode(pdata.StatusCode(otlptrace.Status_Ok))
 
-		actual := convertToSentrySpan(testSpan)
+		library := pdata.NewInstrumentationLibrary()
+		library.InitEmpty()
+		library.SetName("otel-python")
+		library.SetVersion("1.4.3")
+
+		resourceTags := map[string]string{
+			"aws_instance": "ca-central-1",
+			"unique_id":    "abcd1234",
+		}
+
+		actual := convertToSentrySpan(testSpan, library, resourceTags)
 
 		assert.NotNil(t, actual)
-		assert.False(t, actual.IsRootSpan())
+		assert.False(t, isRootSpan(actual))
 
-		expected := &SentrySpan{
+		expected := &sentry.Span{
 			TraceID:      "01020304050607080807060504030201",
 			SpanID:       "0102030405060708",
 			ParentSpanID: "0807060504030201",
 			Description:  name,
 			Op:           "",
 			Tags: map[string]string{
-				"key":            "value",
-				"span_kind":      pdata.SpanKindCLIENT.String(),
-				"status_message": statusMessage,
+				"key":             "value",
+				"library_name":    "otel-python",
+				"library_version": "1.4.3",
+				"aws_instance":    "ca-central-1",
+				"unique_id":       "abcd1234",
+				"span_kind":       pdata.SpanKindCLIENT.String(),
+				"status_message":  statusMessage,
 			},
 			StartTimestamp: unixNanoToTime(startTime),
 			EndTimestamp:   unixNanoToTime(endTime),
@@ -283,124 +316,21 @@ func TestStatusFromSpanStatus(t *testing.T) {
 type ClassifyOrphanSpanTestCase struct {
 	testName string
 	// input
-	idMap           map[string]string
-	rootSpanTreeMap map[string]*rootSpanTree
-	spans           []*SentrySpan
+	idMap          map[string]string
+	transactionMap map[string]*sentry.Event
+	spans          []*sentry.Span
 	// output
-	assertion func(t *testing.T, orphanSpans []*SentrySpan)
+	assertion func(t *testing.T, orphanSpans []*sentry.Span)
 }
 
 func TestClassifyOrphanSpans(t *testing.T) {
-	rootSpan1 := &SentrySpan{
-		TraceID:      "d6c4f03650bd47699ec65c84352b6208",
-		SpanID:       "1cc4b26ab9094ef0",
-		ParentSpanID: "",
-		Description:  "/api/users/{user_id}",
-		Op:           "http.server",
-		Tags: map[string]string{
-			"organization":   "12345",
-			"status_message": "HTTP OK",
-			"span_kind":      "server",
-		},
-		StartTimestamp: unixNanoToTime(5),
-		EndTimestamp:   unixNanoToTime(10),
-		Status:         "ok",
-	}
-
-	childSpan1 := &SentrySpan{
-		TraceID:      "d6c4f03650bd47699ec65c84352b6208",
-		SpanID:       "93ba92db3fa24752",
-		ParentSpanID: "1cc4b26ab9094ef0",
-		Description:  `SELECT * FROM user WHERE "user"."id" = {id}`,
-		Op:           "db",
-		Tags: map[string]string{
-			"function_name":  "get_users",
-			"status_message": "MYSQL OK",
-			"span_kind":      "server",
-		},
-		StartTimestamp: unixNanoToTime(5),
-		EndTimestamp:   unixNanoToTime(7),
-		Status:         "ok",
-	}
-
-	childChildSpan1 := &SentrySpan{
-		TraceID:      "d6c4f03650bd47699ec65c84352b6208",
-		SpanID:       "1fa8913ec3814d34",
-		ParentSpanID: "93ba92db3fa24752",
-		Description:  `DB locked`,
-		Op:           "db",
-		Tags: map[string]string{
-			"db_status":      "oh no im locked rn",
-			"status_message": "MYSQL OK",
-			"span_kind":      "server",
-		},
-		StartTimestamp: unixNanoToTime(6),
-		EndTimestamp:   unixNanoToTime(7),
-		Status:         "ok",
-	}
-
-	childSpan2 := &SentrySpan{
-		TraceID:      "d6c4f03650bd47699ec65c84352b6208",
-		SpanID:       "34efcde268684bb0",
-		ParentSpanID: "1cc4b26ab9094ef0",
-		Description:  "Serialize stuff",
-		Op:           "",
-		Tags: map[string]string{
-			"span_kind": "server",
-		},
-		StartTimestamp: unixNanoToTime(7),
-		EndTimestamp:   unixNanoToTime(10),
-		Status:         "ok",
-	}
-
-	orphanSpan := &SentrySpan{
-		TraceID:        "d6c4f03650bd47699ec65c84352b6208",
-		SpanID:         "6241111811384fae",
-		ParentSpanID:   "1930bb5cc45c4003",
-		Description:    "A random span",
-		Op:             "",
-		Tags:           nil,
-		StartTimestamp: unixNanoToTime(3),
-		EndTimestamp:   unixNanoToTime(6),
-		Status:         "ok",
-	}
-
-	rootSpan2 := &SentrySpan{
-		TraceID:      "d6c4f03650bd47699ec65c84352b6208",
-		SpanID:       "4c7f56556ffe4e4a",
-		ParentSpanID: "",
-		Description:  "Navigating to fancy website",
-		Op:           "pageload",
-		Tags: map[string]string{
-			"status_message": "HTTP OK",
-			"span_kind":      "client",
-		},
-		StartTimestamp: unixNanoToTime(0),
-		EndTimestamp:   unixNanoToTime(5),
-		Status:         "ok",
-	}
-
-	root2childSpan := &SentrySpan{
-		TraceID:      "d6c4f03650bd47699ec65c84352b6208",
-		SpanID:       "7ff3c8daf8184fee",
-		ParentSpanID: "4c7f56556ffe4e4a",
-		Description:  "<FancyReactComponent />",
-		Op:           "react",
-		Tags: map[string]string{
-			"span_kind": "server",
-		},
-		StartTimestamp: unixNanoToTime(4),
-		EndTimestamp:   unixNanoToTime(5),
-		Status:         "ok",
-	}
-
 	testCases := []ClassifyOrphanSpanTestCase{
 		{
-			testName:        "with no root spans",
-			idMap:           make(map[string]string),
-			rootSpanTreeMap: make(map[string]*rootSpanTree),
-			spans:           []*SentrySpan{childSpan1, childSpan2},
-			assertion: func(t *testing.T, orphanSpans []*SentrySpan) {
+			testName:       "with no root spans",
+			idMap:          make(map[string]string),
+			transactionMap: generateEmptyTransactionMap(),
+			spans:          generateOrphanSpansFromSpans(childSpan1, childSpan2),
+			assertion: func(t *testing.T, orphanSpans []*sentry.Span) {
 				assert.Len(t, orphanSpans, 2)
 			},
 		},
@@ -411,16 +341,9 @@ func TestClassifyOrphanSpans(t *testing.T) {
 				idMap[rootSpan1.SpanID] = rootSpan1.SpanID
 				return idMap
 			}(),
-			rootSpanTreeMap: func() map[string]*rootSpanTree {
-				rootSpanTreeMap := make(map[string]*rootSpanTree)
-				rootSpanTreeMap[rootSpan1.SpanID] = &rootSpanTree{
-					rootSpan:   rootSpan1,
-					childSpans: make([]*SentrySpan, 0),
-				}
-				return rootSpanTreeMap
-			}(),
-			spans: []*SentrySpan{childChildSpan1, childSpan1, childSpan2},
-			assertion: func(t *testing.T, orphanSpans []*SentrySpan) {
+			transactionMap: generateEmptyTransactionMap(rootSpan1),
+			spans:          generateOrphanSpansFromSpans(childChildSpan1, childSpan1, childSpan2),
+			assertion: func(t *testing.T, orphanSpans []*sentry.Span) {
 				assert.Len(t, orphanSpans, 0)
 			},
 		},
@@ -431,42 +354,24 @@ func TestClassifyOrphanSpans(t *testing.T) {
 				idMap[rootSpan1.SpanID] = rootSpan1.SpanID
 				return idMap
 			}(),
-			rootSpanTreeMap: func() map[string]*rootSpanTree {
-				rootSpanTreeMap := make(map[string]*rootSpanTree)
-				rootSpanTreeMap[rootSpan1.SpanID] = &rootSpanTree{
-					rootSpan:   rootSpan1,
-					childSpans: make([]*SentrySpan, 0),
-				}
-				return rootSpanTreeMap
-			}(),
-			spans: []*SentrySpan{childChildSpan1, childSpan1, childSpan2, orphanSpan},
-			assertion: func(t *testing.T, orphanSpans []*SentrySpan) {
+			transactionMap: generateEmptyTransactionMap(rootSpan1),
+			spans:          generateOrphanSpansFromSpans(childChildSpan1, childSpan1, childSpan2, orphanSpan1),
+			assertion: func(t *testing.T, orphanSpans []*sentry.Span) {
 				assert.Len(t, orphanSpans, 1)
-				assert.Equal(t, orphanSpan, orphanSpans[0])
+				assert.Equal(t, orphanSpan1, orphanSpans[0])
 			},
 		},
 		{
-			testName: "with some remaining orphans",
+			testName: "with multiple roots",
 			idMap: func() map[string]string {
 				idMap := make(map[string]string)
 				idMap[rootSpan1.SpanID] = rootSpan1.SpanID
 				idMap[rootSpan2.SpanID] = rootSpan2.SpanID
 				return idMap
 			}(),
-			rootSpanTreeMap: func() map[string]*rootSpanTree {
-				rootSpanTreeMap := make(map[string]*rootSpanTree)
-				rootSpanTreeMap[rootSpan1.SpanID] = &rootSpanTree{
-					rootSpan:   rootSpan1,
-					childSpans: make([]*SentrySpan, 0),
-				}
-				rootSpanTreeMap[rootSpan2.SpanID] = &rootSpanTree{
-					rootSpan:   rootSpan2,
-					childSpans: make([]*SentrySpan, 0),
-				}
-				return rootSpanTreeMap
-			}(),
-			spans: []*SentrySpan{childChildSpan1, childSpan1, root2childSpan, childSpan2},
-			assertion: func(t *testing.T, orphanSpans []*SentrySpan) {
+			transactionMap: generateEmptyTransactionMap(rootSpan1, rootSpan2),
+			spans:          generateOrphanSpansFromSpans(childChildSpan1, childSpan1, root2childSpan, childSpan2),
+			assertion: func(t *testing.T, orphanSpans []*sentry.Span) {
 				assert.Len(t, orphanSpans, 0)
 			},
 		},
@@ -474,8 +379,17 @@ func TestClassifyOrphanSpans(t *testing.T) {
 
 	for _, test := range testCases {
 		t.Run(test.testName, func(t *testing.T) {
-			orphanSpans := classifyOrphanSpans(test.spans, len(test.spans)+1, test.idMap, test.rootSpanTreeMap)
+			orphanSpans := classifyAsOrphanSpans(test.spans, len(test.spans)+1, test.idMap, test.transactionMap)
 			test.assertion(t, orphanSpans)
 		})
 	}
+}
+
+func TestGenerateTransactions(t *testing.T) {
+	transactionMap := generateEmptyTransactionMap(rootSpan1, rootSpan2)
+	orphanSpans := generateOrphanSpansFromSpans(orphanSpan1, childSpan1)
+
+	transactions := generateTransactions(transactionMap, orphanSpans)
+
+	assert.Len(t, transactions, 4)
 }
