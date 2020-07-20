@@ -18,13 +18,13 @@ The interface for a Sentry Span can be found [here](https://develop.sentry.dev/s
 | Span.EndTimestamp   | span.EndTime                            |                                                                                                                   |
 | Span.Status         | Span.Status                             |                                                                                                                   |
 
-As can be seen by the table above, the Otel span and Sentry spans map one to one fairly reasonably. Currently the OpenTelemtry `Span.Link` and `Span.TraceState` are not used when constructing a `SentrySpan`
+As can be seen by the table above, the Otel span and Sentry span map fairly reasonably. Currently the OpenTelemtry `Span.Link` and `Span.TraceState` are not used when constructing a `SentrySpan`
 
 ## Transactions
 
 In order to injest spans into Sentry, they must be sorted into transactions, which is made up of a root span and it's corresponding child spans, along with useful metadata.
 
-As we can only ingest transactions, long running traces maybe split up into different transactions. This will still appear as a single trace in the Sentry UI.
+Long running traces may be split up into different transactions. This will still appear as a single trace in the Sentry UI.
 
 ### Implementation
 
@@ -36,12 +36,12 @@ We can then try again to classify these orphan spans, but if not possible, we ca
 
 The interface for a Sentry Transction can be found [here](https://develop.sentry.dev/sdk/event-payloads/transaction/)
 
-| Sentry                        | Used to generate                                                     |
-| ----------------------------- | -------------------------------------------------------------------- |
-| Transaction.Contexts["trace"] | RootSpan.TraceID, RootSpan.SpanID, RootSpan.Op, RootSpan.Description |
-| Transaction.Spans             | ChildSpans                                                           |
-| Transaction.Sdk.Name          | `sentry.opentelemetry`                                               |
-| Transaction.Tags              | Resource.Attributes, RootSpan.Tags                                   |
-| Transaction.StartTimestamp    | RootSpan.StartTimestamp                                              |
-| Transaction.Timestamp         | RootSpan.EndTimestamp                                                |
-| Transaction.Transaction       | RootSpan.Description                                                 |
+| Sentry                        | Used to generate                               |
+| ----------------------------- | ---------------------------------------------- |
+| Transaction.Contexts["trace"] | RootSpan.TraceID, RootSpan.SpanID, RootSpan.Op |
+| Transaction.Spans             | ChildSpans                                     |
+| Transaction.Sdk.Name          | `sentry.opentelemetry`                         |
+| Transaction.Tags              | Resource.Attributes, RootSpan.Tags             |
+| Transaction.StartTimestamp    | RootSpan.StartTimestamp                        |
+| Transaction.Timestamp         | RootSpan.EndTimestamp                          |
+| Transaction.Transaction       | RootSpan.Description                           |

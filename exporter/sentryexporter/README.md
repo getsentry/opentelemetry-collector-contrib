@@ -1,6 +1,6 @@
 # Sentry Exporter
 
-The Sentry Exporter allows you to send traces to [Sentry](https://sentry.io/) as part of the Sentry Performance product.
+The Sentry Exporter allows you to send traces to [Sentry](https://sentry.io/).
 
 For more details about distributed tracing in Sentry, please view [our documentation](https://docs.sentry.io/performance-monitoring/distributed-tracing/).
 
@@ -16,4 +16,8 @@ exporters:
     dsn: https://key@host/path/42
 ```
 
-See the docs folder for more details on how this transformation is working.
+See the [docs](./docs/transformation.md) for more details on how this transformation is working.
+
+### Known Limitations
+
+Currently Sentry Tracing leverages a transaction based system, where a transaction contains one or more spans. The exporter will try to group spans from a trace under one or more transactions based on internal heuristics, but this may lead to certain transactions that contain only one or two spans. These transactions will still be viewable and associated under a single trace in the Sentry UI.
