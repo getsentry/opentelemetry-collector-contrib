@@ -20,4 +20,26 @@ See the [docs](./docs/transformation.md) for more details on how this transforma
 
 ### Known Limitations
 
-Currently Sentry Tracing leverages a transaction based system, where a transaction contains one or more spans. The exporter will try to group spans from a trace under one or more transactions based on internal heuristics, but this may lead to certain transactions that contain only one or two spans. These transactions will still be viewable and associated under a single trace in the Sentry UI.
+Currently, Sentry Tracing leverages a transaction-based system, where a transaction contains one or more spans. The exporter will try to group spans from a trace under one or more transactions based on internal heuristics, but this may lead to the creation of transactions that contain only one or two spans. These transactions will still be viewable and associated under a single trace in the Sentry UI.
+
+One consequence of this result is that very large traces with a large number of spans (500+) and only one root span might be split up into a large number of transactions. There are no current ways to work around this.
+
+### Associating with Sentry Errors
+
+To associate OpenTelemetry spans with Sentry errors, you can set a trace context on the error event. Whenever you start a new trace, you can update the scope to reference a new `trace_id`.
+
+An example with Python but applies to any language that supports a Sentry SDK.
+
+```py
+from sentry_sdk import configure_scope
+
+with start_otel_span("start") as span:
+  ctx = span.get_context()
+  with configure_scope() as scope:
+    scope.set_context("trace", {"trace_id": ctx.trace_id})
+
+  with start_otel_span("child"):
+    # ...
+```
+
+Now if traces are ingested into Sentry, you can associate them to errors that occured during the trace using the `trace_id`. For a full list of the Sentry SDKs and platforms, please check the [Sentry documentation](https://docs.sentry.io/platforms/).
